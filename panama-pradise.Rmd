@@ -1,0 +1,122 @@
+---
+title: "kaggle-paradise-panama"
+author: "MingHao"
+date: "November 16, 2017"
+output: html_document
+---
+
+```{r setup, warning = FALSE, message=FALSE}
+#general
+library(purrr)
+require(tidyverse)
+require(data.table)
+require(lubridate)
+require(stringr)
+require(ggvis)
+require(ggplot2)
+require(forcats)
+require(ggmap)
+require(highcharter)
+require(broom)
+require(plotly)
+
+#network plot
+require(igraph)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+Entities <- as.data.table(read.csv(file="../input/Entities.csv",na.strings=c("","NA"),stringsAsFactors = FALSE))
+
+Addresses <- as.data.table(read.csv(file="../input/Addresses.csv",na.strings=c("","NA"),stringsAsFactors = FALSE))
+
+Intermediaries <- as.data.table(read.csv(file="../input/Intermediaries.csv",na.strings=c("","NA"),stringsAsFactors = FALSE))
+
+Officers <- as.data.table(read.csv(file="../input/Officers.csv",na.strings=c("","NA"),stringsAsFactors = FALSE))
+
+Edges <- as.data.table(read.csv(file="../input/all_edges.csv",na.strings=c("","NA"), stringsAsFactors = FALSE))
+
+
+```
+
+# For country based 
+
+```{r}
+##Nodes
+Nodes<-rbind(Entities[,.(node_id,countries)], 
+      Intermediaries[,.(node_id,countries)], 
+      Officers[,.(node_id,countries)])
+```
+
+some fo the countries names are filled with multiple countries. 
+
+```{r}
+Country_Nodes<-Nodes[is.na(countries), countries:= "Unknown"]%>%
+  .[,id := .GRP,by=countries]%>%
+  .[,.(id,countries)]%>%
+  unique()
+#.GRP is an integer, length 1, containing a simple group counter. 1 for the 1st group, 2 for the 2nd, etc
+```
+
+
+```{r}
+Nodes[is.na(countries), countries:= "Unknown"] %>%
+  .[, .N, by = countries] %>%
+  .[order(-N)]
+```
+
+
+There are just too many records to be plotted, restricting to country, nation based.
+
+Ie, there are just 800k nodes to be ploted if we were to plot every nodes out. Not to meniton the Edges connection that from one another
+
+First, we have to identify 
+
+```{r}
+##Edges
+Edges_simplified<- Edges[,.(node_1, node_2)]
+
+Edges_simplified[complete.cases(Edges_simplified)]
+
+
+
+```
+
+merging group id ofc countries with nodes
+```{r}
+#merging data table, edges and nodes
+Country_id_Edges<-Edges_simplified[Nodes, on=c(node_1 = "node_id"), nomatch= 0] %>%
+  .[Nodes, on=c(node_2 = "node_id"), nomatch= 0] %>%
+  .[,.(id,i.id)]%>%
+  .[, .N, by=c("id","i.id")]
+
+colnames(Country_id_Edges)<- c("from", "to", "Weight")
+
+```
+
+```{r}
+net <- graph.data.frame(Country_id_Edges, Country_Nodes, directed = TRUE)
+```
+
+```{r}
+plot(object <- net, layout = layout_with_fr)
+
+V(net)$degree <- degree(net, mode = "all")*3
+V(net)$betweenness <- betweenness(net)
+V(net)$color <- colorize(V(net)$betweenness)
+V(net)$size <- sqrt(V(net)$degree)
+# V(net)$label <- seq_along(V(net)$size)
+V(net)$label <- NA
+
+plot(net, layout = layout_with_kk)
+
+
+# set.seed(10)
+# hchart(net)
+```
+
