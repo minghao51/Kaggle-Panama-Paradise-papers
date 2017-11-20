@@ -5,6 +5,8 @@ date: "November 16, 2017"
 output: html_document
 ---
 
+# Library
+
 ```{r setup, warning = FALSE, message=FALSE}
 #general
 library(purrr)
@@ -22,13 +24,31 @@ require(plotly)
 
 #network plot
 require(igraph)
+
+
+
+# install.packages(c("maps", "mapdata"))
+library(maps)
+library(mapdata)
+library(ggmap)
+
+
+
+library(GGally)
+library(sna)
+# install.packages("intergraph")
+require(intergraph)
+require(ggnetwork)
+
+
+# install.packages('visNetwork')
+library('visNetwork') 
+
+
+data(worldgeojson, package="highcharter")
 ```
 
-## R Markdown
-
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
-
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+# Data Input
 
 ```{r cars}
 Entities <- as.data.table(read.csv(file="../input/Entities.csv",na.strings=c("","NA"),stringsAsFactors = FALSE))
@@ -40,83 +60,674 @@ Intermediaries <- as.data.table(read.csv(file="../input/Intermediaries.csv",na.s
 Officers <- as.data.table(read.csv(file="../input/Officers.csv",na.strings=c("","NA"),stringsAsFactors = FALSE))
 
 Edges <- as.data.table(read.csv(file="../input/all_edges.csv",na.strings=c("","NA"), stringsAsFactors = FALSE))
-
-
 ```
 
-# For country based 
+## For country based approach
+to minimise the number of nodes and edges needed to plot
 
 ```{r}
-##Nodes
-Nodes<-rbind(Entities[,.(node_id,countries)], 
-      Intermediaries[,.(node_id,countries)], 
-      Officers[,.(node_id,countries)])
+## Nodes
+# Combining various identities and label them
+Nodes<-rbind(Entities[,.(node_id,countries, country_codes, "Entities")], 
+      Intermediaries[,.(node_id,countries, country_codes, "Intermediaries")], 
+      Officers[,.(node_id,countries, country_codes, "Officers")])
+colnames(Nodes)[4]<- "Identity"
 ```
 
-some fo the countries names are filled with multiple countries. 
-
-```{r}
-Country_Nodes<-Nodes[is.na(countries), countries:= "Unknown"]%>%
-  .[,id := .GRP,by=countries]%>%
-  .[,.(id,countries)]%>%
-  unique()
-#.GRP is an integer, length 1, containing a simple group counter. 1 for the 1st group, 2 for the 2nd, etc
-```
+some of the countries names are filled with multiple countries. such as 
+"British Virgin Islands;Hong Kong", 
 
 
 ```{r}
-Nodes[is.na(countries), countries:= "Unknown"] %>%
-  .[, .N, by = countries] %>%
+Nodes<-Nodes[is.na(countries), ':='(countries= "Unknown", country_codes = "XXX")]
+```
+
+
+```{r}
+## Records listed for single Country
+IndividualCountry_Nodes<-Nodes[!grep(";",countries)] %>% # for single country listing
+  # creating id column that is unique to per country
+  .[,id:=.GRP, by= countries] 
+
+# Creating a unique Mapping of Country to ID
+Country2ID_Map<-IndividualCountry_Nodes[,.(id,countries)]%>%
+  unique(., by = c("countries","id"))
+
+#Number of countries
+IndividualCountry.Agg<-Nodes[!grep(";",countries),] %>%
+  .[,.N,by=c("countries", "country_codes", "Identity")] %>%
+  .[order(-N)] %>%
+  .[, if(sum(N)> 5000) .SD, by=c("countries")] # filtering for only countries with more than 5k  listings
+
+# plot
+hchart(IndividualCountry.Agg, "column", hcaes(x = countries, y = N, group = Identity))
+```
+
+
+
+```{r}
+# For records listing multiple countries, most of them are Entities.
+data.frame(table(IndividualCountry_Nodes$Identity))
+
+## CrossCountry Nodes, which listed multiple countries seperated with ";", 
+CrossCountry_Nodes<-Nodes[grep(";",countries)] 
+
+#Number of countries
+Nodes[grep(";",countries)] %>%
+  .[,.N,by=c("countries", "country_codes", "Identity")] %>%
   .[order(-N)]
+
+# For records listing multiple countries, most of them are Entities.
+data.frame(table(CrossCountry_Nodes$Identity))
+
+# At first I thought about ignoring these, but then, these might hold valueble information regarding links, given the links between one entities/intermediates and another.
+
 ```
 
 
-There are just too many records to be plotted, restricting to country, nation based.
 
-Ie, there are just 800k nodes to be ploted if we were to plot every nodes out. Not to meniton the Edges connection that from one another
+```{r}
+# CrossCountry_Nodes
 
-First, we have to identify 
+## "British Virgin Islands;Hong Kong" is listed as seperated count as 
+# "Hong Kong;British Virgin Islands", Hence, need to combine them in same counts
+
+library(stringi)
+## helper function for vapply()
+striHelper <- function(x) stri_c(x[stri_order(x)], collapse = ";")
+
+CrossCountry_Nodes$countries<-vapply(strsplit(CrossCountry_Nodes$countries,  ";"), striHelper, ";")
+CrossCountry_Nodes$country_codes<-vapply(strsplit(CrossCountry_Nodes$country_codes,  ";"), striHelper, ";")
+
+# Raw Number Aggregation
+CrossCountryOccurance<-CrossCountry_Nodes %>%
+  .[,.N, by = c("countries", "country_codes")] %>%
+  .[order(-N)]
+
+#Split to differentiate between countries
+t.splits <- max(lengths(strsplit(CrossCountry_Nodes[,countries], ";")))
+
+t.test <- CrossCountry_Nodes[,.(countries,country_codes)] %>%
+  .[, paste0("m.countries",1:t.splits):=tstrsplit(countries,";")] %>%
+  melt(.,  measure.vars = patterns("^m.*"), na.rm = T) %>%
+  .[,.N, by=c("value","countries")] %>%
+  .[order(-N)] %>%
+  .[, if(sum(N)> 500) .SD, by=c("countries")] # filtering for only countries with more than 500 listings
+
+# plot
+hchart(t.test, "column", hcaes(x = value, y = N, group = countries))
+
+```
+
+
+```{r}
+CrossCountry_Nodes<-CrossCountry_Nodes%>%
+  .[, paste0("m.countries",1:t.splits):=tstrsplit(countries,";")] %>%
+  # this would merge the country uniqiue id on "m.countries1" column, hence introduce slight bias into the data
+  # Perhaps a double merge approach might be better? such that both of the listed countries are each melted into a entry
+  # It would be messy though.
+  .[Country2ID_Map, on=c(m.countries1 = "countries"), nomatch= 0]
+```
+
+
+```{r}
+## And Thus we finnaly have our node_id to country id ready
+Bind_Country2ID_Map<-rbindlist(
+  list(
+  CrossCountry_Nodes[,.(node_id, m.countries1, Identity, id)],
+  IndividualCountry_Nodes[,.(node_id, countries, Identity, id)]
+  )
+)
+```
+
 
 ```{r}
 ##Edges
-Edges_simplified<- Edges[,.(node_1, node_2)]
-
-Edges_simplified[complete.cases(Edges_simplified)]
-
-
-
+Edges_simplified<-Edges[,.(node_1, node_2)]
+# Edges_simplified[complete.cases(Edges_simplified)]
 ```
 
-merging group id ofc countries with nodes
+
+Merging countries id with nodes id, simplifying the relationship
+
 ```{r}
 #merging data table, edges and nodes
-Country_id_Edges<-Edges_simplified[Nodes, on=c(node_1 = "node_id"), nomatch= 0] %>%
-  .[Nodes, on=c(node_2 = "node_id"), nomatch= 0] %>%
-  .[,.(id,i.id)]%>%
+Country_id_Edges<-Edges_simplified %>%
+  .[Bind_Country2ID_Map, on=c(node_1 = "node_id"), nomatch= 0] %>%
+  .[Bind_Country2ID_Map, on=c(node_2 = "node_id"), nomatch= 0] %>%
+  .[,.(id,i.id)]%>% #the "ID" is derived from country ID from node_1, the second - "I.ID" is derived from node_2
   .[, .N, by=c("id","i.id")]
 
-colnames(Country_id_Edges)<- c("from", "to", "Weight")
+colnames(Country_id_Edges)<- c("from", "to", "weight")
+
+
+# summary(Country_id_Edges$from)
+# summary(Country_id_Edges$to)
+```
+
+
+```{r}
+ # with ggmap version 2.6 and geocoding withing a key, it is possible for one to ran into OVER QUERY LIMIT with just a couple geocode ( as the quote is shared). 
+# Hence, to get it working perfectly, currenctly, one has to install ggmap v2.7 ( through github only atm), and register a google key
+
+# devtools::install_github("dkahle/ggmap")
+# install.packages("geosphere")
+
+## To get a API key from google API
+# https://developers.google.com/maps/documentation/geocoding/get-api-key
+# https://stackoverflow.com/questions/36175529/getting-over-query-limit-after-one-request-with-geocode
+register_google(key = "AIzaSyChW6mLIfjq1NlCd1nxg_A6z1jgtTdVmek")
+
+
+filelist <- list.files("../input")
+
+if(any(filelist=="geocodes_df.rds")){
+  #read the created .rds containing the require data
+  geocodes_df <- readRDS("../input/geocodes_df.rds")
+}else{
+  # using geocodes ( part of ggmap package) to find the lat and lon 
+  # perhaps not the cleanest way, some of the location will not be the most accurate.
+  geocodes_df <- geocode(Country2ID_Map$countries)
+  saveRDS(geocodes_df, "../input/geocodes_df.rds")
+}
+
+
+CountryIDNodes<-cbind(Country2ID_Map,geocodes_df)
+```
+
+##Filtering Thresohold
+Given the number of Edges, and that we are probably more interested in links that are most significant, perhaps the edgeshould be filtered by weight before plotting into network graph 
+
+```{r}
+# summary(Country_id_Edges)
+#       from              to            weight        
+#  Min.   :  1.00   Min.   :  1.0   Min.   :     1.0  
+#  1st Qu.: 26.00   1st Qu.: 15.0   1st Qu.:     2.0  
+#  Median : 54.00   Median : 31.0   Median :     5.0  
+#  Mean   : 67.39   Mean   : 46.4   Mean   :   283.9  
+#  3rd Qu.:101.00   3rd Qu.: 64.0   3rd Qu.:    21.0  
+#  Max.   :209.00   Max.   :204.0   Max.   :173187.0  
+
+hcdensity(as.numeric(Country_id_Edges$weight))
 
 ```
 
+## Plotting
+
 ```{r}
-net <- graph.data.frame(Country_id_Edges, Country_Nodes, directed = TRUE)
+net <- graph.data.frame(Country_id_Edges, CountryIDNodes, directed = TRUE)
 ```
 
 ```{r}
-plot(object <- net, layout = layout_with_fr)
+### Enchancement for the Nodes
+# Calculating degree/betweeness
+V(net)$degree <- igraph::degree(net, mode = "all")
+V(net)$betweenness <- igraph::betweenness(net)
 
-V(net)$degree <- degree(net, mode = "all")*3
-V(net)$betweenness <- betweenness(net)
-V(net)$color <- colorize(V(net)$betweenness)
+## Color with Betweenness
+# V(net)$color <- colorize(V(net)$betweenness)
+
+## Color with membership
+wc<- igraph::cluster_walktrap(net)$membership
+V(net)$community <- wc
+V(net)$color <- colorize(V(net)$community)
+
 V(net)$size <- sqrt(V(net)$degree)
+
 # V(net)$label <- seq_along(V(net)$size)
 V(net)$label <- NA
 
-plot(net, layout = layout_with_kk)
+# plot(net, layout = layout_with_kk)
 
+### Enchancement for the Edges
+E(net)$weight1<-log(E(net)$weight)/log(max(E(net)$weight))
+E(net)$weight1[E(net)$weight1==0] <- 0.01
+# head(E(net)$weight1)
 
 # set.seed(10)
 # hchart(net)
+
+
+# plot(net, layout = layout_with_kk)
+```
+
+
+
+```{r}
+V(net)$text <- V(net)$countries
+
+ggg<-ggnet2(net, node.size = sqrt(V(net)$degree)*6, 
+            node.color = colorize(V(net)$community), node.label = V(net)$text,
+            edge.size = E(net)$weight1, edge.color = "grey", 
+            alpha = 0.5, text = text, mode = "kamadakawai")
+# mode = "kamadakawai"
+# this will ignore self loop
+
+# edge weight appear to be working
+#issue with tool tip
+
+
+# ggg$labels$text <- V(net)$text
+
+ggg
+# ggg %>% ggplotly(tooltip="node.label") %>% hide_legend(.)%>% toWebGL()
+
+```
+
+
+
+
+```{r}
+# V(net)$text <- paste(V(net)$name,
+#                        df_airports$name,
+#                        paste(format(V(net)$weighted_degree, big.mark=",", trim=T), "Flights"),
+#                         sep = "<br>")
+# V(net)$text %>% head()
+
+```
+
+
+
+
+
+
+```{r}
+# http://minimaxir.com/2016/12/interactive-network/
+  
+V(net)$text <- V(net)$countries
+
+
+df_net <- ggnetwork(net, layout = "kamadakawai")
+# possible nice layout: kamadakawai, fruchtermanreingold
+#weight i
+# Error in eval(expr, envir, enclos) : object 'Frequency' not found
+
+# unique(df_net$weight1)
+# set.edge.attribute(df_net, "weight", E(net)$weight1)
+
+plot <- ggplot(df_net, aes(x = x, y = y, xend = xend, yend = yend),  arrow.gap = 0.025) +
+    geom_edges(alpha = 0.25, arrow = arrow(length = unit(0.5, "lines"), type = "closed")) +
+    geom_nodes(aes(size = degree, color = betweenness, text=text)) +
+    ggtitle("Network Graph of Papers flows between Countries") +
+    theme_blank()
+plot
+
+# currenct issue, coulnd't get weight into the ggplot nicely
+```
+
+```{r}
+# plot %>% ggplotly(tooltip = "text") %>% toWebGL()
+```
+
+##Adapting from CountryIDEdges
+
+# Threshold
+
+```{r}
+net <- graph.data.frame(Country_id_Edges[weight>=283, ], 
+                        CountryIDNodes[id %in%
+                                           sort(unique(
+                                             c(
+                                               Country_id_Edges[weight>=283]$from, 
+                                               Country_id_Edges[weight>=283]$to)
+                                           ))], 
+                        directed = TRUE)
+
+```
+
+### Nodes Enchancement 
+```{r}
+
+#igraph, creating the graph entities while filtering for weight
+
+# Nodes
+# Calculating degree/betweeness
+V(net)$degree <- igraph::degree(net, mode = "all")
+# The degree of a vertex is its most basic structural property, the number of its adjacent edges.
+Nodes_betweenness<- igraph::betweenness(net)
+V(net)$betweenness <-log(10+Nodes_betweenness)/log(1+max(Nodes_betweenness))
+
+# The vertex and edge betweenness are (roughly) defined by the number of geodesics (shortest paths) going through a vertex or an edge.
+# net %V% betweenness <- igraph::betweenness(net)
+V(net)$centrality <- eigen_centrality(net, weights=E(net)$Weight)$vector
+
+## Color with membership
+wc<- igraph::cluster_walktrap(net)$membership
+V(net)$community <- wc
+V(net)$community <- colorize(V(net)$community)
+
+# labels
+V(net)$text <- V(net)$countries
+
+```
+
+### Edge Enhancement
+
+```{r}
+#Need to manually alocate the Edge lat,lon to appropriate coordinates
+end_loc <- data.table(ename=as.integer(get.edgelist(net)[,2])) %>%
+  .[CountryIDNodes, on= c(ename="id"), nomatch= 0]
+
+# Setting coordinates of edges
+E(net)$endlat <- end_loc$lat
+E(net)$endlon <- end_loc$lon
+
+#taking available weight and scale it from 0 to 1 in logarithm scale
+# f(x) = log(1+x)/log(1+max)
+
+### Scaling of weight
+
+E(net)$weight<-log(1+E(net)$weight)/log(1+max(E(net)$weight))
+
+# Since Edges weight are being theshold, the corresponding nodes that have no connectinon should be removed as well to make sure the plot is as clean as possible
+
+
+
+```
+
+## Country Network plot on Map
+
+```{r}
+library(viridis)
+# world <- map_data("world")
+# world <- world[world$region != "Antarctica",] # intercourse antarctica
+df_net <- ggnetwork(net, layout = "kamadakawai", weights="weight", niter=50000)
+
+plot <- ggplot(arrow.gap = 0.025) +
+    borders("world",
+           colour ="black", fill="#7f7f7f", size=0.10, alpha=1/2)+
+  geom_edges(data = df_net,aes(x = lon, y = lat, xend = endlon, yend = endlat),
+             size=0.4, alpha=0.25 , 
+             arrow = arrow(length = unit(10, "pt"), type = "closed")) +
+  geom_nodes(data=df_net,aes(x=lon, y=lat, xend=endlon,yend=endlat, 
+                             size=centrality, colour=sqrt(degree), text=text)) +
+    scale_colour_viridis() +
+  ggtitle("Relationship of Countries with various nodes") + 
+  ## geom_map would provide a nicer map, but proved to be problematic when chaining through ggplotly
+  # geom_map(data=world, map=world, aes(x=long, y=lat, map_id=region),
+  #          color="white", fill="#7f7f7f", size=0.05, alpha=1/4) +
+
+  guides(size=FALSE, color=FALSE) +
+  theme_blank()+
+  # https://github.com/ropensci/plotly/issues/842
+  theme(legend.position='none') #translate to hide legend in plotly
+
+
+#raw plot
+plot
+
+#plotlly plot
+plot %>% ggplotly(tooltip="text") %>% toWebGL()
+#issue, arrow head doesn't get translated into plotly via ggplotly
+
+#Doesn't appear to be very stable
+#%>% toWebGL()
+
+```
+
+
+##Normal Plot
+
+```{r}
+  
+df_net <- ggnetwork(net, layout = "fruchtermanreingold", weights="weight", niter=50000, arrow.gap=0)
+ # layout = "kamadakawai"
+# arrow.gap = 0.025 # 
+# arrow gap default value for directed graph, but the arrows aren't carried over in plottly
+# niter -  This argument controls the number of iterations to be employed. Larger values take longer, but will provide a more refined layout. (Defaults to 500.)
+
+plot <- ggplot() +
+  geom_edges(data = df_net,aes(x = x, y = y, xend = xend, yend = yend),
+             size=0.4, alpha=0.25) +
+  geom_nodes(data = df_net,aes(x = x, y = y, xend = xend, yend = yend, 
+                               size = degree, color = degree, text=text)) +
+  ggtitle("Relationship of Countries with various nodes") + 
+  scale_colour_viridis() +
+  ## geom_map would provide a nicer map, but proved to be problematic when chaining through ggplotly
+  # geom_map(data=world, map=world, aes(x=long, y=lat, map_id=region),
+  #          color="white", fill="#7f7f7f", size=0.05, alpha=1/4) +
+  # scale_color_manual(labels=c("EWR", "JFK", "LGA", "Others"),
+  #                      values=c(colors, "#1a1a1a"), name="Airports") +
+  guides(size=FALSE, color=FALSE) +
+  theme_blank()+
+  # https://github.com/ropensci/plotly/issues/842
+  theme(legend.position='none') #translate to hide legend in plotly
+
+
+
+#raw plot
+plot
+
+#plotlly plot
+plot %>% ggplotly(tooltip="text") 
+```
+
+# Visnetwork
+
+```{r}
+vis_edge<-Country_id_Edges[weight>=285,]
+vis_node<-CountryIDNodes[id %in% sort(unique(
+                                             c(
+                                               Country_id_Edges[weight>=285]$from, 
+                                               Country_id_Edges[weight>=285]$to)
+                                           ))]
+
+# using igraph to calculate some betweenness and degree
+net<-graph.data.frame(vis_edge, vis_node, directed = TRUE)
+    
+Nodes_betweenness<-igraph::betweenness(net) # Node size
+Nodes_Degree<-igraph::degree(net, mode = "all")
+  
+# Enchancement
+# ?visNodes
+vis_node$shape <- "dot"
+vis_node$shadow <- TRUE # Nodes will drop shadow
+vis_node$label <-vis_node$countries
+vis_node$title <- vis_node$countries
+vis_node$size <- log(10+Nodes_betweenness)/log(1+max(Nodes_betweenness))* 25 #default to 25
+vis_node$borderWidth <- 2 # Node border width
+vis_node$color.background <- colorize(Nodes_Degree)
+vis_node$color.border <- "black"
+vis_node$color.highlight.background <- "orange"
+vis_node$color.highlight.border <- "darkred"
+
+# ?visEdges
+vis_edge$shadow <- FALSE    # edge shadow
+vis_edge$width <-log(1+vis_edge$weight)/log(1+max(vis_edge$weight)) # default to 1
+vis_edge$arrows <- "middle" # arrows: 'from', 'to', or 'middle'
+
+set.seed(1)
+visNetwork(edges=vis_edge, nodes=vis_node, main="Network!") %>% visOptions(highlightNearest = TRUE)
+
+```
+
+
+setting initial starting of nodes as into country coordinates(lat, lon)
+
+```{r}
+#defining starting position before letting physics push themselves apart
+vis_node$x<- vis_node$lon+180
+vis_node$y<- -vis_node$lat+90
+vis_node$physics<- T
+vis_edge$physics<- T
+
+
+visNetwork(edges=vis_edge, nodes=vis_node, main="Network!") %>% visOptions(highlightNearest = TRUE)
+
+```
+
+#d3
+
+```{r}
+#http://kateto.net/networks-r-igraph
+
+library(networkD3)
+vis_edge<-vis_edge[order(from, to)]
+el <- data.frame(from=vis_edge$from, 
+                 to=vis_edge$to,
+                 value = vis_edge$width)
+```
+
+
+```{r}
+# http://www.r-graph-gallery.com/253-custom-network-chart-networkd3/
+vis_node$id=as.numeric(as.factor(vis_node$id))
+
+# reindexing the nodes as d3 network/javascript are zero index
+vis_node$IDN=as.numeric(factor(vis_node$id))-1
+# reindex the edges as per nodes_id
+vis_edge_d3<-vis_node[,.(id,IDN)][vis_edge, on = c(id= "from")] %>%
+  vis_node[,.(id,IDN)][.,  on = c(id= "to")]
+
+# dropping unnecessary columns and renaming 
+vis_edge_d3$id<-NULL
+vis_edge_d3$i.id<-NULL
+colnames(vis_edge_d3)[1]<- "from"
+colnames(vis_edge_d3)[2]<- "to"
+
+
+forceNetwork(Links = vis_edge_d3, Nodes = vis_node, 
+             # plotting parameters
+             Source="from", Target="to", Value = "width",
+             Group = "color.background", NodeID="countries",
+             # Nodesize=6,
+             opacity = 0.8, 
+             opacityNoHover = 0.4,  
+             radiusCalculation = JS(" d.nodesize^2+10"), 
+             linkColour = "#afafaf", 
+             linkWidth = JS("function(d) { return Math.sqrt(d.value); }"), 
+             
+             # layout
+             charge = -250,  # if highly negative, more space betqeen nodes
+             
+             # -- general parameters
+             arrows=TRUE,
+             fontSize=17,
+             zoom = TRUE,
+             legend=F,
+             width = NULL, 
+             height = NULL
+)
+
+
+```
+
+## Full Raw  graph
+
+```{r}
+
+## Nodes
+# Combining various identities and label them
+Nodes<-rbind(Entities[,.(node_id,countries, country_codes, sourceID, "Entities")], 
+      Intermediaries[,.(node_id,countries, country_codes, sourceID, "Intermediaries")], 
+      Officers[,.(node_id,countries, country_codes, sourceID, "Officers")],
+               Addresses[,.(node_id, countries, country_codes, sourceID, "Addresses")]
+      )
+colnames(Nodes)[5]<- "Identity"
+#I initially thought that address wouldn't be needed in to full network diagram, but later found out that if I exlude the addresses datasets, I couldn't form a network graph some of the nodes require connection to the node_id that can only be found in address datasets.
+
+
+# These combined dataframe of nodes is not directly network graphable. As the node_id is not unique, ie. Below we explore these non unique node_id records.
+
+Non_unique_ID <-Nodes[, fD := .N > 1, by = node_id][fD==TRUE] %>%
+  .[order(node_id)]
+Non_unique_ID 
+
+# So, apparently some ID have entires for both Intermediaries and Officers, which probably a simply row_bind to combine them, as in these case m the node_id would not be unique.
+
+# after some testing, it appears that such issue only occurs between intermediaries and officers.
+
+# Dropping the officers row if the node_id is already occupied by an intermediate.
+Nodes<-Nodes[!(fD==TRUE & Identity=="Officers")]
+
+# Dropping the fD column as it is no longer needed.
+Nodes$fD <- NULL
+```
+
+```{r}
+Nodes[,.N, by= sourceID]
+```
+
+
+```{r}
+
+# While I intend to use different arrows type for the disply of Edges witin the network plot, there are simply far too many relationship types as indicated by the rel_type column in Edges. Although the majority of the relationship are well covered by the top 30 types
+
+# Hence, I will simplify it by defining 3 type of edges, 
+# 1) Identical relationship (only within top 30 types)#same name as
+# 2) Directional relationship (only within top 30 types) #intermediary of/shareholder of/director of
+# 3) Others (those not inlcuded in top 30 most popular relationship)
+
+popular_rel_type<-Edges[,.N, by=rel_type] %>%
+  .[order(-N)] %>%
+  head(30)
+
+
+# popular_rel_type$rel_type
+
+# within the top 30 most common relationship
+
+identical_relation_list <- c("similar name and address as",
+                        "same name as",
+                        "same company as",
+                        "same name and registration date as",
+                        "same address as")
+
+
+Edges[rel_type %in% popular_rel_type$rel_type, Edge_Type:=1]%>%
+  .[!(rel_type %in% popular_rel_type$rel_type), Edge_Type:=2]%>%
+  .[rel_type %in%identical_relation_list, Edge_Type :=3]
+
+
+```
+
+
+```{r}
+##Edges
+Edges_simplified<-Edges[,.(node_1, node_2, Edge_Type, sourceID)]
+colnames(Edges_simplified) <-c("from", "to", "edge_type", "sourceID")
+```
+
+
+```{r}
+net <- graph.data.frame(Edges_simplified, vertices=Nodes, directed = TRUE)
+```
+
+```{r}
+df_net <- ggnetwork(net, layout = "kamadakawai")
+# another possible layout: kamadakawai, fruchtermanreingold
+#weight i
+# Error in eval(expr, envir, enclos) : object 'Frequency' not found
+
+# unique(df_net$weight1)
+# set.edge.attribute(df_net, "weight", E(net)$weight1)
+
+plot <- ggplot(df_net, aes(x = x, y = y, xend = xend, yend = yend),  arrow.gap = 0.025) +
+    geom_edges(alpha = 0.25, arrow = arrow(length = unit(0.5, "lines"), type = "closed")) +
+    geom_nodes(aes(size = degree, color = betweenness, text=text)) +
+    ggtitle("Network Graph of Papers flows between Countries") +
+    theme_blank()
+plot
+
+```
+
+
+
+```{r}
+########
+# ###Approach to merge all the datasets together.
+# 
+# ## rename the individual datasets, to combine them via node_id
+# colnames(Entities) <- paste("Ent", colnames(Entities), sep = ".")
+# colnames(Intermediaries) <- paste("Int", colnames(Intermediaries), sep = ".")
+# colnames(Officers) <- paste("Off", colnames(Officers), sep = ".")
+# 
+# # Merging all the inputs together.
+# testx<-Intermediaries[Entities, on= c(Int.node_id="Ent.node_id" )]%>%
+#   .[Officers, on = c(Int.node_id="Off.node_id")]
+#
+#  This seems to yield many  unnessasary columns as most node_id has only one listing in either Entities, Intermediaries andOfficers.  
+########
+
 ```
 
