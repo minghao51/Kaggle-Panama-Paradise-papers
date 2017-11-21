@@ -2,14 +2,20 @@
 title: "kaggle-paradise-panama"
 author: "MingHao"
 date: "November 16, 2017"
-output: html_document
+output: 
+  html_document:
+    toc: true
+    toc_depth: 2
+    toc_float: true
+    df_print: paged
+    code_folding: hide
 ---
 
 # Library
 
 ```{r setup, warning = FALSE, message=FALSE}
 #general
-library(purrr)
+require(purrr)
 require(tidyverse)
 require(data.table)
 require(lubridate)
@@ -21,36 +27,27 @@ require(ggmap)
 require(highcharter)
 require(broom)
 require(plotly)
+require(stringi)
 
 #network plot
 require(igraph)
-
-
-
-# install.packages(c("maps", "mapdata"))
-library(maps)
-library(mapdata)
-library(ggmap)
-
-
-
-library(GGally)
-library(sna)
-# install.packages("intergraph")
+require(ggmap)
+require(sna)
 require(intergraph)
 require(ggnetwork)
+require('visNetwork')
 
+require(viridis)
 
-# install.packages('visNetwork')
-library('visNetwork') 
+# achieve/appendices
+require(GGally)
+require(networkD3)
 
-
-data(worldgeojson, package="highcharter")
 ```
 
 # Data Input
 
-```{r cars}
+```{r input}
 Entities <- as.data.table(read.csv(file="../input/Entities.csv",na.strings=c("","NA"),stringsAsFactors = FALSE))
 
 Addresses <- as.data.table(read.csv(file="../input/Addresses.csv",na.strings=c("","NA"),stringsAsFactors = FALSE))
@@ -62,7 +59,7 @@ Officers <- as.data.table(read.csv(file="../input/Officers.csv",na.strings=c("",
 Edges <- as.data.table(read.csv(file="../input/all_edges.csv",na.strings=c("","NA"), stringsAsFactors = FALSE))
 ```
 
-## For country based approach
+## Country based approach
 to minimise the number of nodes and edges needed to plot
 
 ```{r}
@@ -132,7 +129,7 @@ data.frame(table(CrossCountry_Nodes$Identity))
 ## "British Virgin Islands;Hong Kong" is listed as seperated count as 
 # "Hong Kong;British Virgin Islands", Hence, need to combine them in same counts
 
-library(stringi)
+
 ## helper function for vapply()
 striHelper <- function(x) stri_c(x[stri_order(x)], collapse = ";")
 
@@ -200,9 +197,6 @@ Country_id_Edges<-Edges_simplified %>%
 
 colnames(Country_id_Edges)<- c("from", "to", "weight")
 
-
-# summary(Country_id_Edges$from)
-# summary(Country_id_Edges$to)
 ```
 
 
@@ -231,204 +225,72 @@ if(any(filelist=="geocodes_df.rds")){
   saveRDS(geocodes_df, "../input/geocodes_df.rds")
 }
 
-
 CountryIDNodes<-cbind(Country2ID_Map,geocodes_df)
 ```
 
-##Filtering Thresohold
+## Thresoholding 
 Given the number of Edges, and that we are probably more interested in links that are most significant, perhaps the edgeshould be filtered by weight before plotting into network graph 
 
 ```{r}
-# summary(Country_id_Edges)
-#       from              to            weight        
-#  Min.   :  1.00   Min.   :  1.0   Min.   :     1.0  
-#  1st Qu.: 26.00   1st Qu.: 15.0   1st Qu.:     2.0  
-#  Median : 54.00   Median : 31.0   Median :     5.0  
-#  Mean   : 67.39   Mean   : 46.4   Mean   :   283.9  
-#  3rd Qu.:101.00   3rd Qu.: 64.0   3rd Qu.:    21.0  
-#  Max.   :209.00   Max.   :204.0   Max.   :173187.0  
-
-hcdensity(as.numeric(Country_id_Edges$weight))
-
-```
-
-## Plotting
-
-```{r}
-net <- graph.data.frame(Country_id_Edges, CountryIDNodes, directed = TRUE)
-```
-
-```{r}
-### Enchancement for the Nodes
-# Calculating degree/betweeness
-V(net)$degree <- igraph::degree(net, mode = "all")
-V(net)$betweenness <- igraph::betweenness(net)
-
-## Color with Betweenness
-# V(net)$color <- colorize(V(net)$betweenness)
-
-## Color with membership
-wc<- igraph::cluster_walktrap(net)$membership
-V(net)$community <- wc
-V(net)$color <- colorize(V(net)$community)
-
-V(net)$size <- sqrt(V(net)$degree)
-
-# V(net)$label <- seq_along(V(net)$size)
-V(net)$label <- NA
-
-# plot(net, layout = layout_with_kk)
-
-### Enchancement for the Edges
-E(net)$weight1<-log(E(net)$weight)/log(max(E(net)$weight))
-E(net)$weight1[E(net)$weight1==0] <- 0.01
-# head(E(net)$weight1)
-
-# set.seed(10)
-# hchart(net)
-
-
-# plot(net, layout = layout_with_kk)
-```
-
-
-
-```{r}
-V(net)$text <- V(net)$countries
-
-ggg<-ggnet2(net, node.size = sqrt(V(net)$degree)*6, 
-            node.color = colorize(V(net)$community), node.label = V(net)$text,
-            edge.size = E(net)$weight1, edge.color = "grey", 
-            alpha = 0.5, text = text, mode = "kamadakawai")
-# mode = "kamadakawai"
-# this will ignore self loop
-
-# edge weight appear to be working
-#issue with tool tip
-
-
-# ggg$labels$text <- V(net)$text
-
-ggg
-# ggg %>% ggplotly(tooltip="node.label") %>% hide_legend(.)%>% toWebGL()
+# summary(Country_id_Edges$weight)
+ # Min.  1st Qu.   Median     Mean  3rd Qu.     Max. 
+ # 1.0      2.0      5.0    283.9     21.0   173200.0 
 
 ```
 
 
 
+## Network - igraph/ggnetwork/plotly method
+http://minimaxir.com/2016/12/interactive-network/
+
+#### Threshold
+This threshold the nodes/vertices and edges to include only those that is connected by 
 
 ```{r}
-# V(net)$text <- paste(V(net)$name,
-#                        df_airports$name,
-#                        paste(format(V(net)$weighted_degree, big.mark=",", trim=T), "Flights"),
-#                         sep = "<br>")
-# V(net)$text %>% head()
-
-```
-
-
-
-
-
-
-```{r}
-# http://minimaxir.com/2016/12/interactive-network/
-  
-V(net)$text <- V(net)$countries
-
-
-df_net <- ggnetwork(net, layout = "kamadakawai")
-# possible nice layout: kamadakawai, fruchtermanreingold
-#weight i
-# Error in eval(expr, envir, enclos) : object 'Frequency' not found
-
-# unique(df_net$weight1)
-# set.edge.attribute(df_net, "weight", E(net)$weight1)
-
-plot <- ggplot(df_net, aes(x = x, y = y, xend = xend, yend = yend),  arrow.gap = 0.025) +
-    geom_edges(alpha = 0.25, arrow = arrow(length = unit(0.5, "lines"), type = "closed")) +
-    geom_nodes(aes(size = degree, color = betweenness, text=text)) +
-    ggtitle("Network Graph of Papers flows between Countries") +
-    theme_blank()
-plot
-
-# currenct issue, coulnd't get weight into the ggplot nicely
-```
-
-```{r}
-# plot %>% ggplotly(tooltip = "text") %>% toWebGL()
-```
-
-##Adapting from CountryIDEdges
-
-# Threshold
-
-```{r}
-net <- graph.data.frame(Country_id_Edges[weight>=283, ], 
+net <- graph.data.frame(Country_id_Edges[weight>=285, ], 
                         CountryIDNodes[id %in%
                                            sort(unique(
                                              c(
-                                               Country_id_Edges[weight>=283]$from, 
-                                               Country_id_Edges[weight>=283]$to)
+                                               Country_id_Edges[weight>=285]$from, 
+                                               Country_id_Edges[weight>=285]$to)
                                            ))], 
                         directed = TRUE)
 
 ```
 
-### Nodes Enchancement 
+#### Nodes/Edges Enchancement 
 ```{r}
-
 #igraph, creating the graph entities while filtering for weight
-
-# Nodes
-# Calculating degree/betweeness
-V(net)$degree <- igraph::degree(net, mode = "all")
-# The degree of a vertex is its most basic structural property, the number of its adjacent edges.
 Nodes_betweenness<- igraph::betweenness(net)
+
+#### Nodes Enchancement 
+V(net)$degree <- igraph::degree(net, mode = "all")
 V(net)$betweenness <-log(10+Nodes_betweenness)/log(1+max(Nodes_betweenness))
-
-# The vertex and edge betweenness are (roughly) defined by the number of geodesics (shortest paths) going through a vertex or an edge.
-# net %V% betweenness <- igraph::betweenness(net)
 V(net)$centrality <- eigen_centrality(net, weights=E(net)$Weight)$vector
-
-## Color with membership
-wc<- igraph::cluster_walktrap(net)$membership
-V(net)$community <- wc
 V(net)$community <- colorize(V(net)$community)
-
-# labels
 V(net)$text <- V(net)$countries
 
-```
-
-### Edge Enhancement
-
-```{r}
+#### Edge Enhancement
 #Need to manually alocate the Edge lat,lon to appropriate coordinates
 end_loc <- data.table(ename=as.integer(get.edgelist(net)[,2])) %>%
   .[CountryIDNodes, on= c(ename="id"), nomatch= 0]
 
-# Setting coordinates of edges
+### Setting coordinates of edges arrow
 E(net)$endlat <- end_loc$lat
 E(net)$endlon <- end_loc$lon
 
-#taking available weight and scale it from 0 to 1 in logarithm scale
-# f(x) = log(1+x)/log(1+max)
-
 ### Scaling of weight
-
+# applying a logarithm scale to recale the weight from 0 to 1
 E(net)$weight<-log(1+E(net)$weight)/log(1+max(E(net)$weight))
-
-# Since Edges weight are being theshold, the corresponding nodes that have no connectinon should be removed as well to make sure the plot is as clean as possible
-
-
 
 ```
 
-## Country Network plot on Map
+### Country Network plot on Map
+
+Forcing the nodes to be located at respective coordiantes(longitude and latitude) of the said country.
 
 ```{r}
-library(viridis)
+
 # world <- map_data("world")
 # world <- world[world$region != "Antarctica",] # intercourse antarctica
 df_net <- ggnetwork(net, layout = "kamadakawai", weights="weight", niter=50000)
@@ -461,12 +323,20 @@ plot %>% ggplotly(tooltip="text") %>% toWebGL()
 #issue, arrow head doesn't get translated into plotly via ggplotly
 
 #Doesn't appear to be very stable
-#%>% toWebGL()
+
 
 ```
 
+However, given the number of nodes and edges laying the map, going this approach demand sacrifice on the visibility, perhaps a more stricter thresholding will help?
 
-##Normal Plot
+toWebGL() Doesn't appear to be very stable at times, may require the user to click on the plot once to start rendering
+
+
+
+
+### Network Plot
+
+These exist a host of layouts that exists to help illustrate the connectivity between nodes and edges, not to mention, the coordinates (x, y) of the nodes in the network plot could carry significant meaning as well.
 
 ```{r}
   
@@ -502,7 +372,19 @@ plot
 plot %>% ggplotly(tooltip="text") 
 ```
 
-# Visnetwork
+
+
+## Visnetwork
+http://kateto.net/networks-r-igraph
+* Well documented on [their Website](http://datastorm-open.github.io/visNetwork/)
+* Physics based 
+* Appears to be running on Javascript/html
+* Aethestically pleasing, among the cleanest network plot
+
+Issues
+* No direct method to overlay the nodes onto of a map,
+While it is possible to force them into respective coordintes(x, y) and disable Physics, to properly display them would require some work on scaling.
+
 
 ```{r}
 vis_edge<-Country_id_Edges[weight>=285,]
@@ -518,8 +400,8 @@ net<-graph.data.frame(vis_edge, vis_node, directed = TRUE)
 Nodes_betweenness<-igraph::betweenness(net) # Node size
 Nodes_Degree<-igraph::degree(net, mode = "all")
   
-# Enchancement
-# ?visNodes
+## Enchancement
+## ?visNodes
 vis_node$shape <- "dot"
 vis_node$shadow <- TRUE # Nodes will drop shadow
 vis_node$label <-vis_node$countries
@@ -531,37 +413,45 @@ vis_node$color.border <- "black"
 vis_node$color.highlight.background <- "orange"
 vis_node$color.highlight.border <- "darkred"
 
+## Defining starting position of nodes as coordinates of the countries, so that their location of on graph would bear some semblance to their respective location on the map ( ie, Australia is down south etc)
+vis_node$x<- vis_node$lon+180
+vis_node$y<- -vis_node$lat+90
+
+## Physics can be disable so the nodes would not be moved from the initial location (lat/lon), this is not used as it generated a plot that is rather hard to read.
+# vis_node$physics<- F
+# vis_edge$physics<- T
+
 # ?visEdges
 vis_edge$shadow <- FALSE    # edge shadow
 vis_edge$width <-log(1+vis_edge$weight)/log(1+max(vis_edge$weight)) # default to 1
 vis_edge$arrows <- "middle" # arrows: 'from', 'to', or 'middle'
 
 set.seed(1)
-visNetwork(edges=vis_edge, nodes=vis_node, main="Network!") %>% visOptions(highlightNearest = TRUE)
+visNetwork(edges=vis_edge, nodes=vis_node, main="Aggregated Network plot of Countries",
+           height="400px", width="100%")  %>%
+  visOptions(highlightNearest = TRUE) 
+
+## While the Initial zoom level can be setup, this require either to disable visPhysics's Stabilization or the use of visIgraphLayout, which would sacrifice the the cleanliness of the plot
+
+## Choosing to true off stabilization option in physics would hence require the stabilization iteration to be plotted, aesthetically and physically impressive but not useful 
+
+# visEvents(type = "once", startStabilizing = "function() {
+#             this.moveTo({scale:0.5})}") %>%
+#   visPhysics(stabilization = FALSE)%>% 
+
+# %>% visIgraphLayout() 
+## While it yield a ok map with the Igraph Layout, it is relatively messy as the nodes and edges can be in close proximity with one another.
 
 ```
+You will have to scroll your mouse3 to zoom towards the network plots, unfortunately setting initiall zoom level brought about some undesirable side effects, at least for the methods i tried.
+
+Country coordinates(lat, lon) of respective nodes are used as starting location of the network plot. Hence, the final location of nodes ( countries) should bear some resemblance to their respective location on the world map
 
 
-setting initial starting of nodes as into country coordinates(lat, lon)
-
+### Network d3
+[githubpage/document](https://github.com/christophergandrud/d3Network)
+This network plot methods works pretty well though, asside from requiring edges to be index at 0. This is further complicated by the fact that thresholded nodes_id aren't even continuous.
 ```{r}
-#defining starting position before letting physics push themselves apart
-vis_node$x<- vis_node$lon+180
-vis_node$y<- -vis_node$lat+90
-vis_node$physics<- T
-vis_edge$physics<- T
-
-
-visNetwork(edges=vis_edge, nodes=vis_node, main="Network!") %>% visOptions(highlightNearest = TRUE)
-
-```
-
-#d3
-
-```{r}
-#http://kateto.net/networks-r-igraph
-
-library(networkD3)
 vis_edge<-vis_edge[order(from, to)]
 el <- data.frame(from=vis_edge$from, 
                  to=vis_edge$to,
@@ -571,64 +461,64 @@ el <- data.frame(from=vis_edge$from,
 
 ```{r}
 # http://www.r-graph-gallery.com/253-custom-network-chart-networkd3/
-vis_node$id=as.numeric(as.factor(vis_node$id))
 
-# reindexing the nodes as d3 network/javascript are zero index
+## Suggested method of reindexing the id, probably only works if your id is continously
+# vis_node$id=as.numeric(as.factor(vis_node$id))-1
+
+## Reindexing the nodes as d3 network/javascript are zero index
+#Create a zero index column IDN
 vis_node$IDN=as.numeric(factor(vis_node$id))-1
-# reindex the edges as per nodes_id
+# Merged/Mapped the IDN column into "to" and "from" column in edges.
 vis_edge_d3<-vis_node[,.(id,IDN)][vis_edge, on = c(id= "from")] %>%
   vis_node[,.(id,IDN)][.,  on = c(id= "to")]
-
-# dropping unnecessary columns and renaming 
+# Dropping unnecessary columns and renaming 
 vis_edge_d3$id<-NULL
 vis_edge_d3$i.id<-NULL
 colnames(vis_edge_d3)[1]<- "from"
 colnames(vis_edge_d3)[2]<- "to"
 
-
-forceNetwork(Links = vis_edge_d3, Nodes = vis_node, 
-             # plotting parameters
-             Source="from", Target="to", Value = "width",
-             Group = "color.background", NodeID="countries",
-             # Nodesize=6,
-             opacity = 0.8, 
-             opacityNoHover = 0.4,  
-             radiusCalculation = JS(" d.nodesize^2+10"), 
-             linkColour = "#afafaf", 
-             linkWidth = JS("function(d) { return Math.sqrt(d.value); }"), 
-             
-             # layout
-             charge = -250,  # if highly negative, more space betqeen nodes
-             
-             # -- general parameters
-             arrows=TRUE,
-             fontSize=17,
-             zoom = TRUE,
-             legend=F,
-             width = NULL, 
-             height = NULL
-)
+# forceNetwork(Links = vis_edge_d3, Nodes = vis_node, 
+#              # plotting parameters
+#              Source="from", Target="to", Value = "width",
+#              Group = "color.background", NodeID="countries",
+#              # Nodesize=6,
+#              opacity = 0.8, 
+#              opacityNoHover = 0.4,  
+#              radiusCalculation = JS(" d.nodesize^2+10"), 
+#              linkColour = "#afafaf", 
+#              linkWidth = JS("function(d) { return Math.sqrt(d.value); }"), 
+#              
+#              # layout
+#              charge = -250,  # if highly negative, more space betqeen nodes
+#              
+#              # general parameters
+#              arrows=TRUE,
+#              fontSize=17,
+#              zoom = TRUE,
+#              legend=F,
+#              width = NULL, 
+#              height = NULL
+# )
 
 
 ```
 
-## Full Raw  graph
+
+
+# Graphing the Network by identities
 
 ```{r}
-
 ## Nodes
 # Combining various identities and label them
-Nodes<-rbind(Entities[,.(node_id,countries, country_codes, sourceID, "Entities")], 
-      Intermediaries[,.(node_id,countries, country_codes, sourceID, "Intermediaries")], 
-      Officers[,.(node_id,countries, country_codes, sourceID, "Officers")],
-               Addresses[,.(node_id, countries, country_codes, sourceID, "Addresses")]
-      )
-colnames(Nodes)[5]<- "Identity"
+Nodes<-rbind(
+  Entities[,.(node_id,countries, country_codes, nameID=name, sourceID, Identity="Entities")], 
+  Intermediaries[,.(node_id,countries, country_codes, nameID=name, sourceID, Identity="Intermediaries")], 
+  Officers[,.(node_id,countries, country_codes, nameID=name, sourceID, Identity="Officers")],
+  Addresses[,.(node_id, countries, country_codes, sourceID, Identity="Addresses")]
+  , fill=TRUE)
 #I initially thought that address wouldn't be needed in to full network diagram, but later found out that if I exlude the addresses datasets, I couldn't form a network graph some of the nodes require connection to the node_id that can only be found in address datasets.
 
-
 # These combined dataframe of nodes is not directly network graphable. As the node_id is not unique, ie. Below we explore these non unique node_id records.
-
 Non_unique_ID <-Nodes[, fD := .N > 1, by = node_id][fD==TRUE] %>%
   .[order(node_id)]
 Non_unique_ID 
@@ -642,6 +532,7 @@ Nodes<-Nodes[!(fD==TRUE & Identity=="Officers")]
 
 # Dropping the fD column as it is no longer needed.
 Nodes$fD <- NULL
+
 ```
 
 ```{r}
@@ -662,9 +553,6 @@ popular_rel_type<-Edges[,.N, by=rel_type] %>%
   .[order(-N)] %>%
   head(30)
 
-
-# popular_rel_type$rel_type
-
 # within the top 30 most common relationship
 
 identical_relation_list <- c("similar name and address as",
@@ -684,50 +572,360 @@ Edges[rel_type %in% popular_rel_type$rel_type, Edge_Type:=1]%>%
 
 ```{r}
 ##Edges
-Edges_simplified<-Edges[,.(node_1, node_2, Edge_Type, sourceID)]
-colnames(Edges_simplified) <-c("from", "to", "edge_type", "sourceID")
+Edges_simplified<-Edges[,.(node_1, node_2, rel_type, Edge_Type, sourceID)]
+colnames(Edges_simplified) <-c("from", "to", "rel_type", "edge_type", "sourceID")
 ```
 
 
 ```{r}
-net <- graph.data.frame(Edges_simplified, vertices=Nodes, directed = TRUE)
+## Setting network graph into directed to examine the all connections and out connections of nodes
+net <- graph.data.frame(Edges_simplified, vertices=Nodes, directed = T)
+
 ```
+
 
 ```{r}
-df_net <- ggnetwork(net, layout = "kamadakawai")
-# another possible layout: kamadakawai, fruchtermanreingold
-#weight i
-# Error in eval(expr, envir, enclos) : object 'Frequency' not found
+### Degree, the connections of edges
+nodes_degree_all <- igraph::degree(net, mode = "all")
+nodes_degree_out <- igraph::degree(net, mode = "out")
+# The degree of a vertex is its most basic structural property, the number of its adjacent edges.
 
-# unique(df_net$weight1)
-# set.edge.attribute(df_net, "weight", E(net)$weight1)
+### Betweenness, number of shortest path going through vertext, 
+### It doesn't seems sensible to examine the network plot with this
+# nodes_betweenness<- igraph::betweenness(net)
+## The vertex and edge betweenness are (roughly) defined by the number of geodesics (shortest paths) going through a vertex or an edge.
+```
 
-plot <- ggplot(df_net, aes(x = x, y = y, xend = xend, yend = yend),  arrow.gap = 0.025) +
-    geom_edges(alpha = 0.25, arrow = arrow(length = unit(0.5, "lines"), type = "closed")) +
-    geom_nodes(aes(size = degree, color = betweenness, text=text)) +
-    ggtitle("Network Graph of Papers flows between Countries") +
-    theme_blank()
-plot
+
+
+```{r}
+## Setting network graph into non directed to greatly simplify the cluster calculation
+net <- graph.data.frame(Edges_simplified, vertices=Nodes, directed = F)
+
+nodes_centrality <- eigen_centrality(net)
+## Eigenvector centrality scores correspond to the values of the first eigenvector of the graph adjacency matrix; these scores may, in turn, be interpreted as arising from a reciprocal process in which the centrality of each actor is proportional to the sum of the centralities of those actors to whom he or she is connected.
+
+## allocating the calculated nodes attributes into a dataframe
+nodes_attributes<-data.table(names(nodes_degree_all), 
+                        unlist(nodes_degree_all), 
+                        unlist(nodes_degree_out), 
+                        unlist(nodes_centrality$vector))
+colnames(nodes_attributes)<- c("nodes_id","nodes_degree_all","nodes_degree_out","centrality")
 
 ```
 
 
+```{r}
+decomposed_graph_list<-decompose.graph(net)
+# this return a list of seperate graph for each component
+# plot(decomposed_graph_list[[231]])
+
+
+##Calculation the number of members per decomposed graph and set it as a dataframe.
+vcount_dt<-data.table(unlist(lapply(decomposed_graph_list,vcount)),keep.rownames=T)
+vcount_dt$membership_id<-rownames(vcount_dt)
+setnames(vcount_dt, "V1", "vcount")
+vcount_dt[order(-vcount)]
+
+
+## Choosing clusters of different size to plot
+#large id=991, N=406
+#medium id=185, N=166
+#small  id=5050, N=16
+
+```
+
+
+```{r}
+
+subnodes_large<-as_data_frame(decomposed_graph_list[[991]], what = c("vertices"))
+subedges_large<-as_data_frame(decomposed_graph_list[[991]], what = c("edges"))
+
+subnodes_medium<-as_data_frame(decomposed_graph_list[[185]], what = c("vertices"))
+subedges_medium<-as_data_frame(decomposed_graph_list[[185]], what = c("edges"))
+
+subnodes_small<-as_data_frame(decomposed_graph_list[[5050]], what = c("vertices"))
+subedges_small<-as_data_frame(decomposed_graph_list[[5050]], what = c("edges"))
+
+```
+
+## Subnodes_Large
+
+```{r}
+# using igraph to calculate some betweenness and degree
+subnet_large<-graph.data.frame(subedges_large, subnodes_large, directed = TRUE)
+    
+Nodes_betweenness<-igraph::betweenness(subnet_large) # Node size
+Nodes_Degree<-igraph::degree(subnet_large, mode = "all")
+  
+# Enchancement
+# ?visNodes
+subnodes_large$id<- subnodes_large$name
+subnodes_large$shadow <- TRUE # Nodes will drop shadow
+subnodes_large$size <- log(10+Nodes_betweenness)/log(1+max(Nodes_betweenness))* 25 #default to 25
+subnodes_large$borderWidth <- 2 # Node border width
+subnodes_large$color.background <- colorize(Nodes_Degree)
+subnodes_large$color.border <- "black"
+subnodes_large$color.highlight.background <- "orange"
+subnodes_large$color.highlight.border <- "darkred"
+subnodes_large$shape <- factor(subnodes_large$Identity,
+                                levels=c("Entities","Intermediaries","Officers","Addresses"),
+                                labels=c("dot","triangle","square","diamond"))
+subnodes_large$label <-subnodes_large$nameID
+subnodes_large$title <- paste0("<p>",subnodes_large$nameID,"<br>",subnodes_large$countries,"</p>")
+
+# ?visEdges
+subedges_large$shadow <- FALSE    # edge shadow
+subedges_large$arrows <- "middle" # arrows: 'from', 'to', or 'middle'
+subedges_large$dashes <- (subedges_large$edge_type==3)
+subedges_large$label<- subedges_large$rel_type
+
+set.seed(1)
+visNetwork(edges=subedges_large, nodes=subnodes_large, main="Extracted Large Cluster",
+           height="400px", width="100%")  %>% 
+  visIgraphLayout() %>%
+  visOptions(highlightNearest = list(enabled=T, degree=1, hover=F))
+
+```
+
+## Subnodes_medium
+
+```{r}
+# using igraph to calculate some betweenness and degree
+subnet_medium<-graph.data.frame(subedges_medium, subnodes_medium, directed = TRUE)
+    
+Nodes_betweenness<-igraph::betweenness(subnet_medium) # Node size
+Nodes_Degree<-igraph::degree(subnet_medium, mode = "all")
+  
+# Enchancement
+# ?visNodes
+subnodes_medium$id<- subnodes_medium$name
+subnodes_medium$shadow <- TRUE # Nodes will drop shadow
+subnodes_medium$size <- log(10+Nodes_betweenness)/log(1+max(Nodes_betweenness))* 25 #default to 25
+subnodes_medium$borderWidth <- 2 # Node border width
+subnodes_medium$color.background <- colorize(Nodes_Degree)
+subnodes_medium$color.border <- "black"
+subnodes_medium$color.highlight.background <- "orange"
+subnodes_medium$color.highlight.border <- "darkred"
+subnodes_medium$shape <- factor(subnodes_medium$Identity,
+                                levels=c("Entities","Intermediaries","Officers","Addresses"),
+                                labels=c("dot","triangle","square","diamond"))
+subnodes_medium$label <-subnodes_medium$nameID
+subnodes_medium$title <- paste0("<p>",subnodes_medium$nameID,"<br>",subnodes_medium$countries,"</p>")
+
+
+# ?visEdges
+subedges_medium$shadow <- FALSE    # edge shadow
+subedges_medium$arrows <- "middle" # arrows: 'from', 'to', or 'middle'
+subedges_medium$dashes <- (subedges_medium$edge_type==3)
+subedges_medium$label<- subedges_medium$rel_type
+
+set.seed(1)
+visNetwork(edges=subedges_medium, nodes=subnodes_medium, main="Extracted Medium Cluster")  %>% 
+  # visIgraphLayout() %>%
+  visOptions(highlightNearest = TRUE)
+
+```
+
+
+
+
+## Subnodes_Small
+
+```{r}
+# using igraph to calculate some betweenness and degree
+subnet_small<-graph.data.frame(subedges_small, subnodes_small, directed = TRUE)
+    
+Nodes_betweenness<-igraph::betweenness(subnet_small) # Node size
+Nodes_Degree<-igraph::degree(subnet_small, mode = "all")
+  
+# Enchancement
+# ?visNodes
+subnodes_small$id<- subnodes_small$name
+subnodes_small$shadow <- TRUE # Nodes will drop shadow
+subnodes_small$label <-subnodes_small$countries
+subnodes_small$title <- subnodes_small$nameID
+subnodes_small$size <- log(10+Nodes_betweenness)/log(1+max(Nodes_betweenness))* 25 #default to 25
+subnodes_small$borderWidth <- 2 # Node border width
+subnodes_small$color.background <- colorize(Nodes_Degree)
+subnodes_small$color.border <- "black"
+subnodes_small$color.highlight.background <- "orange"
+subnodes_small$color.highlight.border <- "darkred"
+subnodes_small$shape <- factor(subnodes_small$Identity,
+                                levels=c("Entities","Intermediaries","Officers","Addresses"),
+                                labels=c("dot","triangle","square","diamond"))
+subnodes_small$label <-subnodes_small$nameID
+subnodes_small$title <- paste0("<p>",subnodes_small$nameID,"<br>",subnodes_small$countries,"</p>")
+
+# ?visEdges
+subedges_small$shadow <- FALSE    # edge shadow
+subedges_small$arrows <- "middle" # arrows: 'from', 'to', or 'middle'
+subedges_small$dashes <- (subedges_small$edge_type==3)
+subedges_small$label<- subedges_small$rel_type
+
+set.seed(1)
+visNetwork(edges=subedges_small, nodes=subnodes_small, main="Extracted Small Cluster")  %>% 
+  # visIgraphLayout() %>%
+  visOptions(highlightNearest = TRUE)
+
+```
+
+
+
+```{r}
+# Exploring centrality
+High_Centrality_Nodes<-nodes_attributes[centrality>=0.002681][order(-centrality)]%>%head(30)
+High_Centrality_Nodes
+Nodes[node_id %in% High_Centrality_Nodes$nodes_id]
+```
+
+
+```{r}
+#Exploring degrees
+# nodes with most in connections
+nodes_attributes[order(nodes_degree_out, -nodes_degree_all)]
+
+# nodes with most outgoing connections
+nodes_attributes[order(-nodes_degree_out, nodes_degree_all)]
+```
+
+
+# Apendicies
+
+Dump/Achieved chunks than I tried and failed to achieve adequate result.
+
+## Attempt to merge all the datasets together
+
+This is achieved version my previous attempt to merge(only with node_id) all the datasets while preserving the individual columns by renaming them before merging.
+
+Ultimately, this seems to yield a very unweidly data.frame/data.table (very sparse). Turns out most of the node_id only have one identiy(either entities/intermediaries/officers), There are some node_id with inputs for intermediaries and officers but it is rather rare.
+
+rbind method that i used in my main routine works better in this case.
 
 ```{r}
 ########
-# ###Approach to merge all the datasets together.
 # 
 # ## rename the individual datasets, to combine them via node_id
 # colnames(Entities) <- paste("Ent", colnames(Entities), sep = ".")
 # colnames(Intermediaries) <- paste("Int", colnames(Intermediaries), sep = ".")
 # colnames(Officers) <- paste("Off", colnames(Officers), sep = ".")
 # 
-# # Merging all the inputs together.
+# ## Merging all the inputs together.
 # testx<-Intermediaries[Entities, on= c(Int.node_id="Ent.node_id" )]%>%
 #   .[Officers, on = c(Int.node_id="Off.node_id")]
 #
-#  This seems to yield many  unnessasary columns as most node_id has only one listing in either Entities, Intermediaries andOfficers.  
+#  
 ########
 
 ```
+
+
+## Other methods of plotting network that i tried
+### Network - igraph/ggnet2/plotly
+
+* Slighltly Cleaner than igraph/ggnetwork/ggplot, but 
+
+Issues
+* I couldn't identify a path to pass the tooltips text into plotlys for interactively
+* toWebGL() proved to be problematic.
+
+
+```{r}
+net <- graph.data.frame(Country_id_Edges, CountryIDNodes, directed = TRUE)
+```
+
+```{r}
+### Enchancement for the Nodes
+# Calculating degree/betweeness
+V(net)$degree <- igraph::degree(net, mode = "all")
+V(net)$betweenness <- igraph::betweenness(net)
+# V(net)$color <- colorize(V(net)$betweenness)
+V(net)$community<- igraph::cluster_walktrap(net)$membership
+V(net)$color <- colorize(V(net)$community)
+V(net)$size <- sqrt(V(net)$degree)
+V(net)$label <- NA
+V(net)$text <- V(net)$countries
+
+### Enchancement for the Edges
+E(net)$weight1<-log(E(net)$weight)/log(max(E(net)$weight))
+E(net)$weight1[E(net)$weight1==0] <- 0.01
+# head(E(net)$weight1)
+
+# plot(net, layout = layout_with_kk)
+```
+
+
+```{r}
+ggg<-ggnet2(net, node.size = sqrt(V(net)$degree)*6,
+            node.color = colorize(V(net)$community), node.label = V(net)$text,
+            edge.size = E(net)$weight1, edge.color = "grey", label.size=2,
+            alpha = 0.5, mode = "kamadakawai") +
+  theme_blank()+
+  # https://github.com/ropensci/plotly/issues/842
+  theme(legend.position='none') #translate to hide legend in plotly
+# mode = "kamadakawai"
+
+
+# issue with tool tip
+# I could not get the tool tip working in this form
+
+ggg
+
+```
+
+
+
+
+```{r}
+df_net <- ggnetwork(net, layout = "kamadakawai")
+# possible nice layout: kamadakawai, fruchtermanreingold
+
+plot <- ggplot(df_net, aes(x = x, y = y, xend = xend, yend = yend),  arrow.gap = 0.025) +
+    geom_edges(alpha = 0.25, arrow = arrow(length = unit(0.5, "lines"), type = "closed")) +
+    geom_nodes(aes(size = degree, color = betweenness, text=text)) +
+    ggtitle("Network Graph of Papers flows between Countries") +
+    theme_blank()
+
+plot %>% ggplotly(tooltip = "text") %>% toWebGL()
+# currenct issue, coulnd't get weight into the ggplot nicely
+```
+
+
+## Active, Inactive Entities per country over time
+```{r}
+# # TODO perhaps later
+# ## Nodes
+# Entities[,.(countries,jurisdiction_description,incorporation_date,inactivation_date,struck_off_date,dorm_date,service_provider,sourceID)]
+# 
+# 
+# data_list<- c("incorporation_date","inactivation_date","struck_off_date","dorm_date")
+# Entities[,(data_list):=lapply(.SD,parse_date_time,orders="%d-%m-%Y"),
+#          .SDcols=data_list]
+
+```
+
+## other more advance clustering method from igraph
+
+
+```{r}
+# ###
+# ## Setting network graph into non directed to greatly simplify the cluster calculation
+# net <- graph.data.frame(Edges_simplified, vertices=Nodes, directed = F)
+# 
+# ###  Hierarchical based clustering
+# nodes_cluster_lec<-cluster_leading_eigen(net)
+# ## find densely connected subgraphs in a graph by calculating the leading non-negative eigenvector of the modularity matrix of the graph.
+# 
+# ### Not hierarchical based
+# ## cluster_label_prop
+#  nodes_cluster_label<-cluster_label_prop(net, weights = NA)
+# ## linear time algorithm (quoted V+E)for detecting community structure in networks. In works by labeling the vertices with unique labels and then updating the labels by majority voting in the neighborhood of the vertex.
+# ## Supplied 'weight'='NA' to ignore the 'weight' edge attribute.
+# 
+# ## cluster_walktrap
+#  V(net)$community<-igraph::cluster_walktrap(net)$membership
+# # cost of calculation is rather big, not to mention I dont think random walk will aid in this situation
+# ###
+```
+
 
