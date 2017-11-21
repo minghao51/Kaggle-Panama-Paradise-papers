@@ -11,7 +11,21 @@ output:
     code_folding: hide
 ---
 
+<br/>
+<hr/>
+<br/>
+
+# Motivation
+The data science technology the International Consortium of Investigative Journalists (ICIJ) used to explore the papers appears to be powered by Linkurious (which appears to be a graph visualization and analysis software) . The [ICIJ website](https://www.icij.org/investigations/paradise-papers/explore-politicians-paradise-papers/) did showcase some of the network visualization on its webpage.
+
+Hence, right at the start, My aim was to explore both the panama-paradise papers with network packages available in R.  This notebook should serve as a exploratory of panama-paradise papers, as well as documentating/introducing network package in R.
+
+<br/>
+<hr/>
+<br/>
+
 # Library
+run require R packages.
 
 ```{r setup, warning = FALSE, message=FALSE}
 #general
@@ -45,7 +59,12 @@ require(networkD3)
 
 ```
 
+<br/>
+<hr/>
+<br/>
+
 # Data Input
+csv files to be read.
 
 ```{r input}
 Entities <- as.data.table(read.csv(file="../input/Entities.csv",na.strings=c("","NA"),stringsAsFactors = FALSE))
@@ -59,7 +78,45 @@ Officers <- as.data.table(read.csv(file="../input/Officers.csv",na.strings=c("",
 Edges <- as.data.table(read.csv(file="../input/all_edges.csv",na.strings=c("","NA"), stringsAsFactors = FALSE))
 ```
 
-## Country based approach
+
+## Glimpse of Entities.csv input
+```{r}
+glimpse(Entities)
+```
+
+<br/>
+
+## Glimpse of Edges input
+```{r}
+glimpse(Edges)
+```
+
+<br/>
+
+some terms to be introduced to be often use in networkplots
+
+*Links/Edges	
+A data frame object with the links between the nodes. It should include the Source (from) and Target (to) for each link, as well as other properties (depending on package being use)
+
+*Nodes/Vertices	 (Address, Enties, Intermediaries, Officers in this case)
+A data frame containing the node id and properties of the nodes.
+
+The .csv are also rather well structured to be adapted into network packages, Entities, Addresses, Intermediaries, and Officers datasets llisting are all attributed to a "node_id", while the "node_1" and "node_2" column in Edge.csv seems to be describing the relationship between said nodes.
+
+
+
+<br/>
+<hr/>
+<br/>
+
+The very first thing I realise is that it is impossible to relistically plot ~1.5million edges and ~900k nodes in a single plot. Even if the hardware/software could somehow support it, it would not be comprehensible. This be even clearer after seeing some networks plots later.
+
+Thus, given that one can only shown limited edges and nodes in a network plots. It seems reducing the respective node_id to respective unique instance of countries would work (both nodes and edges would require processing).
+
+Alternatively, one could cluster the nodes, then proceed to subplot the network. This is done in later section, although this method did not occur to me until I am done with country based nodes and started examining the clusters. 
+
+<br/>
+## Reducing Nodes and Edges into Country
 to minimise the number of nodes and edges needed to plot
 
 ```{r}
@@ -68,17 +125,25 @@ to minimise the number of nodes and edges needed to plot
 Nodes<-rbind(Entities[,.(node_id,countries, country_codes, "Entities")], 
       Intermediaries[,.(node_id,countries, country_codes, "Intermediaries")], 
       Officers[,.(node_id,countries, country_codes, "Officers")])
-colnames(Nodes)[4]<- "Identity"
+setnames(Nodes, "V4", "Identity") # data.table method to rename
+# colnames(Nodes)[4]<- "Identity"
 ```
 
-some of the countries names are filled with multiple countries. such as 
-"British Virgin Islands;Hong Kong", 
 
+While there is already some nodes depicting of the country names and codes as "Not Identify", some of the countries column in the node are left emtpy/NA, I am not sure if there are any significant associated with "Not Identify". 
+
+Hence I  am going to attributes these listing of nodes without countries(empty/NA) with countries= "Unknown", country_codes = "XXX".
 
 ```{r}
 Nodes<-Nodes[is.na(countries), ':='(countries= "Unknown", country_codes = "XXX")]
 ```
 
+
+some of the countries names are filled with names of multiple countries, such as 
+"British Virgin Islands;Hong Kong", instead of a single name. These countries identity can be seperated with the ";"
+
+
+For the single listing country 
 
 ```{r}
 ## Records listed for single Country
@@ -101,6 +166,8 @@ hchart(IndividualCountry.Agg, "column", hcaes(x = countries, y = N, group = Iden
 ```
 
 
+
+For cross/country listing
 
 ```{r}
 # For records listing multiple countries, most of them are Entities.
@@ -228,7 +295,7 @@ if(any(filelist=="geocodes_df.rds")){
 CountryIDNodes<-cbind(Country2ID_Map,geocodes_df)
 ```
 
-## Thresoholding 
+### Edges's Weight statistics.
 Given the number of Edges, and that we are probably more interested in links that are most significant, perhaps the edgeshould be filtered by weight before plotting into network graph 
 
 ```{r}
