@@ -6,9 +6,12 @@ output:
   html_document:
     toc: true
     toc_depth: 2
-    toc_float: true
+    toc_float: 
+      collapsed: false
     df_print: paged
+    number_sections: true
     code_folding: hide
+    results: hold
 ---
 
 <br/>
@@ -18,7 +21,7 @@ output:
 # Motivation
 The data science technology the International Consortium of Investigative Journalists (ICIJ) used to explore the papers appears to be powered by Linkurious (which appears to be a graph visualization and analysis software) . The [ICIJ website](https://www.icij.org/investigations/paradise-papers/explore-politicians-paradise-papers/) did showcase some of the network visualization on its webpage.
 
-Hence, right at the start, My aim was to explore both the panama-paradise papers with network packages available in R.  This notebook should serve as a exploratory of panama-paradise papers, as well as documentating/introducing network package in R.
+Hence, right at the start, My aim was to explore both the panama-paradise papers with network packages available in R.  This notebook should serve as a exploratory of panama-paradise papers, as well as documentating/introducing network package in R using (igraph)[http://kateto.net/networks-r-igraph] as a core. Also, given the amount of nodes and Edges, I choose to explore only interactive network plots.
 
 <br/>
 <hr/>
@@ -79,45 +82,45 @@ Edges <- as.data.table(read.csv(file="../input/all_edges.csv",na.strings=c("","N
 ```
 
 
-## Glimpse of Entities.csv input
 ```{r}
-glimpse(Entities)
+data_list<- c("incorporation_date","inactivation_date","struck_off_date","dorm_date")
+Entities[,(data_list):=lapply(.SD,parse_date_time,orders="%d-%m-%Y"),
+         .SDcols=data_list]
 ```
-
-<br/>
-
-## Glimpse of Edges input
-```{r}
-glimpse(Edges)
-```
-
-<br/>
-
-some terms to be introduced to be often use in networkplots
-
-*Links/Edges	
-A data frame object with the links between the nodes. It should include the Source (from) and Target (to) for each link, as well as other properties (depending on package being use)
-
-*Nodes/Vertices	 (Address, Enties, Intermediaries, Officers in this case)
-A data frame containing the node id and properties of the nodes.
-
-The .csv are also rather well structured to be adapted into network packages, Entities, Addresses, Intermediaries, and Officers datasets llisting are all attributed to a "node_id", while the "node_1" and "node_2" column in Edge.csv seems to be describing the relationship between said nodes.
-
-
 
 <br/>
 <hr/>
 <br/>
 
-The very first thing I realise is that it is impossible to relistically plot ~1.5million edges and ~900k nodes in a single plot. Even if the hardware/software could somehow support it, it would not be comprehensible. This be even clearer after seeing some networks plots later.
+
+
+# Glossary of terms with network
+
+*Links/Edges - A data frame object with the links between the nodes. It should include the Source (from) and Target (to) for each link, as well as other properties (depending on package being use). Sadly, the provided datasets contain no flow of finance/money, just relationship between identities.
+
+*Nodes/Vertices	 - A data frame containing the node id and properties of the nodes. (Address, Enties, Intermediaries, Officers in this case)
+
+The .csv given are also rather well structured to be adapted into network packages - Entities, Addresses, Intermediaries, and Officers datasets llisting are all attributed to a "node_id", while the "node_1" and "node_2" column in Edge.csv seems to be describing the relationship between said nodes.
+
+<br/>
+<hr/>
+<br/>
+
+
+# Data Exploration
+
+The very first thing I realise is that it is impossible to relistically plot ~1.5million edges and ~900k nodes in a single plot. Even if the hardware/software could somehow support it, it would not be comprehensible to human. This issue should be clearer after seeing some networks plots later.
 
 Thus, given that one can only shown limited edges and nodes in a network plots. It seems reducing the respective node_id to respective unique instance of countries would work (both nodes and edges would require processing).
 
 Alternatively, one could cluster the nodes, then proceed to subplot the network. This is done in later section, although this method did not occur to me until I am done with country based nodes and started examining the clusters. 
 
 <br/>
-## Reducing Nodes and Edges into Country
-to minimise the number of nodes and edges needed to plot
+
+## Country
+### Nodes - Countries
+
+Binded  all the identities in the nodes (Entities, Intermediaries, Officers). I excluded address data sets from this nodes as all the identities are already tied to their respective geographical countries.
 
 ```{r}
 ## Nodes
@@ -129,21 +132,25 @@ setnames(Nodes, "V4", "Identity") # data.table method to rename
 # colnames(Nodes)[4]<- "Identity"
 ```
 
+While there is already some nodes depicting of the country names and codes as "Not Identify", some of the countries column in the node are left emtpy/NA.
 
-While there is already some nodes depicting of the country names and codes as "Not Identify", some of the countries column in the node are left emtpy/NA, I am not sure if there are any significant associated with "Not Identify". 
+Instance where, 
 
-Hence I  am going to attributes these listing of nodes without countries(empty/NA) with countries= "Unknown", country_codes = "XXX".
+* country=NA - is changed to "Unknown" for mapping and aggregating purpose
+
+* country="Not Identify" - is left alone
+
+
+
 
 ```{r}
 Nodes<-Nodes[is.na(countries), ':='(countries= "Unknown", country_codes = "XXX")]
 ```
 
 
-some of the countries names are filled with names of multiple countries, such as 
-"British Virgin Islands;Hong Kong", instead of a single name. These countries identity can be seperated with the ";"
+#### For single listing countries name{-}
 
-
-For the single listing country 
+Creating a node_id map to country id. 
 
 ```{r}
 ## Records listed for single Country
@@ -165,66 +172,84 @@ IndividualCountry.Agg<-Nodes[!grep(";",countries),] %>%
 hchart(IndividualCountry.Agg, "column", hcaes(x = countries, y = N, group = Identity))
 ```
 
+#### For cross/multiple countries listing in column name{-}
 
+The country column for those with muliple country name listed seperate instance of a country. For example,
 
-For cross/country listing
+* "British Virgin Islands;Hong Kong", 
+
+* "Hong Kong;British Virgin Islands"
+
+This would introduce an extra 569 nodes ( due to the combinatin of countries), hence should be eliminated/merged away, not to metion these listing also begs the questions of where to list them on a physical world map.
 
 ```{r}
 # For records listing multiple countries, most of them are Entities.
-data.frame(table(IndividualCountry_Nodes$Identity))
+# data.frame(table(IndividualCountry_Nodes$Identity))
 
 ## CrossCountry Nodes, which listed multiple countries seperated with ";", 
 CrossCountry_Nodes<-Nodes[grep(";",countries)] 
 
-#Number of countries
-Nodes[grep(";",countries)] %>%
-  .[,.N,by=c("countries", "country_codes", "Identity")] %>%
-  .[order(-N)]
-
 # For records listing multiple countries, most of them are Entities.
-data.frame(table(CrossCountry_Nodes$Identity))
+# data.frame(table(CrossCountry_Nodes$Identity))
+
+#Number of countries
+CrossCountry_Nodes.Agg<-CrossCountry_Nodes %>%
+  .[,.N,by=c("countries", "country_codes", "Identity")] %>%
+  .[order(-N)]%>%
+  head(30)
+
+# plot
+hchart(CrossCountry_Nodes.Agg, "column", hcaes(x = countries, y = N, group = Identity))
+
 
 # At first I thought about ignoring these, but then, these might hold valueble information regarding links, given the links between one entities/intermediates and another.
 
 ```
 
-
+This should be combined for the count. Reodering of the list country terms after a strsplit to counteract this.
 
 ```{r}
-# CrossCountry_Nodes
-
 ## "British Virgin Islands;Hong Kong" is listed as seperated count as 
 # "Hong Kong;British Virgin Islands", Hence, need to combine them in same counts
 
 
+### This section split the strings in countries column, which is then reordered and combined back into its original column
 ## helper function for vapply()
 striHelper <- function(x) stri_c(x[stri_order(x)], collapse = ";")
 
 CrossCountry_Nodes$countries<-vapply(strsplit(CrossCountry_Nodes$countries,  ";"), striHelper, ";")
 CrossCountry_Nodes$country_codes<-vapply(strsplit(CrossCountry_Nodes$country_codes,  ";"), striHelper, ";")
 
-# Raw Number Aggregation
+# Raw Number Aggregation, can also be use to check the reordering of strings
 CrossCountryOccurance<-CrossCountry_Nodes %>%
   .[,.N, by = c("countries", "country_codes")] %>%
   .[order(-N)]
-
-#Split to differentiate between countries
-t.splits <- max(lengths(strsplit(CrossCountry_Nodes[,countries], ";")))
-
-t.test <- CrossCountry_Nodes[,.(countries,country_codes)] %>%
-  .[, paste0("m.countries",1:t.splits):=tstrsplit(countries,";")] %>%
-  melt(.,  measure.vars = patterns("^m.*"), na.rm = T) %>%
-  .[,.N, by=c("value","countries")] %>%
-  .[order(-N)] %>%
-  .[, if(sum(N)> 500) .SD, by=c("countries")] # filtering for only countries with more than 500 listings
-
-# plot
-hchart(t.test, "column", hcaes(x = value, y = N, group = countries))
-
 ```
+
+I decided on taking only the 1st column after reodering to simplify the tracking of countries, this would introduce some bias into the data due to the ordering of countries names by alphabetical order.
+
+In essence, this would convert
+
+* "British Virgin Islands;Hong Kong" ->"British Virgin Islands"
+
+* "Hong Kong;British Virgin Islands" ->"British Virgin Islands"
 
 
 ```{r}
+
+# #Spliting the multiple countries listed
+t.splits <- max(lengths(strsplit(CrossCountry_Nodes[,countries], ";")))
+# 
+# t.test <- CrossCountry_Nodes[,.(countries,country_codes)] %>%
+#   .[, paste0("m.countries",1:t.splits):=tstrsplit(countries,";")] %>%
+#   melt(.,  measure.vars = patterns("^m.*"), na.rm = T) %>%
+#   .[,.N, by=c("value","countries")] %>%
+#   .[order(-N)] %>%
+#   .[, if(sum(N)> 500) .SD, by=c("countries")] # filtering for only countries with more than 500 listings
+# 
+# # plot
+# hchart(t.test, "column", hcaes(x = value, y = N, group = countries))
+
 CrossCountry_Nodes<-CrossCountry_Nodes%>%
   .[, paste0("m.countries",1:t.splits):=tstrsplit(countries,";")] %>%
   # this would merge the country uniqiue id on "m.countries1" column, hence introduce slight bias into the data
@@ -233,6 +258,9 @@ CrossCountry_Nodes<-CrossCountry_Nodes%>%
   .[Country2ID_Map, on=c(m.countries1 = "countries"), nomatch= 0]
 ```
 
+#### Country2ID Mapping
+
+Combining both the indiviual and cross listing country's node_id to country_id
 
 ```{r}
 ## And Thus we finnaly have our node_id to country id ready
@@ -244,6 +272,13 @@ Bind_Country2ID_Map<-rbindlist(
 )
 ```
 
+<br/>
+<hr/>
+<br/>
+
+### Edges - Countries
+
+Pulling only "node_id" from Egdes as attributes
 
 ```{r}
 ##Edges
@@ -252,7 +287,11 @@ Edges_simplified<-Edges[,.(node_1, node_2)]
 ```
 
 
-Merging countries id with nodes id, simplifying the relationship
+Steps taken:
+
+* Applying the previously constructed Country2ID Map
+
+* Aggregate the relationship/connection between countries, summing each incidence (set as weight).[Simple graph]
 
 ```{r}
 #merging data table, edges and nodes
@@ -266,9 +305,16 @@ colnames(Country_id_Edges)<- c("from", "to", "weight")
 
 ```
 
+<br/>
+<hr/>
+<br/>
+
+#### Geocoding the Nodes
+
+Pin pointing the respective country nodes on map with geocoding
 
 ```{r}
- # with ggmap version 2.6 and geocoding withing a key, it is possible for one to ran into OVER QUERY LIMIT with just a couple geocode ( as the quote is shared). 
+ # with ggmap version 2.6 and geocoding withing a key, it is possible for one to ran into OVER QUERY LIMIT with just a couple geocode (as the quote for query is shared). 
 # Hence, to get it working perfectly, currenctly, one has to install ggmap v2.7 ( through github only atm), and register a google key
 
 # devtools::install_github("dkahle/ggmap")
@@ -292,26 +338,51 @@ if(any(filelist=="geocodes_df.rds")){
   saveRDS(geocodes_df, "../input/geocodes_df.rds")
 }
 
+# bind extracting coordinates into the Nodes, to be use as attributes for plotting later
 CountryIDNodes<-cbind(Country2ID_Map,geocodes_df)
 ```
 
-### Edges's Weight statistics.
+<br/>
+<hr/>
+<br/>
+
+#### Edges's Weight statistic
+
 Given the number of Edges, and that we are probably more interested in links that are most significant, perhaps the edgeshould be filtered by weight before plotting into network graph 
 
 ```{r}
-# summary(Country_id_Edges$weight)
+summary(Country_id_Edges$weight)
  # Min.  1st Qu.   Median     Mean  3rd Qu.     Max. 
  # 1.0      2.0      5.0    283.9     21.0   173200.0 
-
 ```
 
+It can be seen that the majority of the connections/edges between countries nodes are rather week, even the 3rd Quantile of the weight is only mere 21, while it's mean is 283.9, Ie a very right skewed distribution with very very long tail.
+
+<br/>
+<hr/>
+<br/>
 
 
-## Network - igraph/ggnetwork/plotly method
-http://minimaxir.com/2016/12/interactive-network/
+### Plotly - igraph/ggnetwork method
 
-#### Threshold
-This threshold the nodes/vertices and edges to include only those that is connected by 
+This method of achieve interactive network plots roughly followed what shown at (minimaxir)[http://minimaxir.com/2016/12/interactive-network/]
+
+Pros
+
+* ggplot style of plotting, although most nodes attributes require some work/preprocess to be depicted nicey
+
+Issue
+
+* Directionality in Edges is not shown in plotly - Thus, directional edges are shown only as lines between nodes.
+
+* No self loop can be showned - This is significant in this case, as self loop can be indicative of considerable amoung of illicit relationship/money movement within a country.
+
+* Failed get the geom edges's weight to be depict as width/size after ggplotly(), the 
+
+To reduce the amount of Edges plotted, the weight can be thresholded to include only those > ~ Mean value. This threshold can also then be applied to remove countries nodes that did not shown consideration edges/relationship in the extracted datasets.
+
+
+In this case, I assume that the relationship is direction, from "node_1" to "node_2"
 
 ```{r}
 net <- graph.data.frame(Country_id_Edges[weight>=285, ], 
@@ -325,7 +396,18 @@ net <- graph.data.frame(Country_id_Edges[weight>=285, ],
 
 ```
 
-#### Nodes/Edges Enchancement 
+##### Nodes/Edges Enchancement {-}
+
+Some functions of igraph that would aid in interpretating network plots.
+
+* Centrality - igenvector centrality scores correspond to the values of the first eigenvector of the graph adjacency matrix; these scores may, in turn, be interpreted as arising from a reciprocal process in which the centrality of each actor is proportional to the sum of the centralities of those actors to whom he or she is connected.
+
+* Betweenness - The vertex and edge betweenness are (roughly) defined by the number of geodesics (shortest paths) going through a vertex or an edge.
+
+* Degree - The degree of a vertex is its most basic structural property, the number of its adjacent edges
+
+
+
 ```{r}
 #igraph, creating the graph entities while filtering for weight
 Nodes_betweenness<- igraph::betweenness(net)
@@ -336,15 +418,24 @@ V(net)$betweenness <-log(10+Nodes_betweenness)/log(1+max(Nodes_betweenness))
 V(net)$centrality <- eigen_centrality(net, weights=E(net)$Weight)$vector
 V(net)$community <- colorize(V(net)$community)
 V(net)$text <- V(net)$countries
+V(net)$color <- colorize(V(net)$degree)
 
 #### Edge Enhancement
 #Need to manually alocate the Edge lat,lon to appropriate coordinates
-end_loc <- data.table(ename=as.integer(get.edgelist(net)[,2])) %>%
-  .[CountryIDNodes, on= c(ename="id"), nomatch= 0]
+end_loc <- data.table(ename=as.integer(get.edgelist(net)[,2]))
+end_loc<- CountryIDNodes[end_loc, on= c(id="ename"), nomatch= 0]
+
+start_loc <- data.table(ename=as.integer(get.edgelist(net)[,1]))
+start_loc<- CountryIDNodes[start_loc, on= c(id="ename"), nomatch= 0]
+
 
 ### Setting coordinates of edges arrow
 E(net)$endlat <- end_loc$lat
 E(net)$endlon <- end_loc$lon
+
+E(net)$startlat <- start_loc$lat
+E(net)$startlon <- start_loc$lon
+
 
 ### Scaling of weight
 # applying a logarithm scale to recale the weight from 0 to 1
@@ -352,27 +443,34 @@ E(net)$weight<-log(1+E(net)$weight)/log(1+max(E(net)$weight))
 
 ```
 
-### Country Network plot on Map
 
-Forcing the nodes to be located at respective coordiantes(longitude and latitude) of the said country.
 
-```{r}
+Customised variables on plotly
 
-# world <- map_data("world")
-# world <- world[world$region != "Antarctica",] # intercourse antarctica
-df_net <- ggnetwork(net, layout = "kamadakawai", weights="weight", niter=50000)
+* Nodes Size - centrality,  the centrality of each country is proportional to the sum of the other country nodes that it is connected with. This parameter would be influence by the weight of the edges connected and self looping edges too. (Larger -> more central to the network)
+
+* Nodes colour - Degree, how many connection one nodes has (lighter colour means that a particular  country nodes has more connections) [counting both in and out connections]
+
+<br/>
+
+#### Country Network plot on Map
+The actual code chunks for plotting
+
+```{r , warning = FALSE, message=FALSE}
+df_net <- ggnetwork(net, layout = "kamadakawai", weights="weight")
+# the ggnetwork essentially convert the igraph structure 'net' into a dataframe, which is more easy and famlier to work with, but this is also very limiting. 
 
 plot <- ggplot(arrow.gap = 0.025) +
     borders("world",
            colour ="black", fill="#7f7f7f", size=0.10, alpha=1/2)+
   geom_edges(data = df_net,aes(x = lon, y = lat, xend = endlon, yend = endlat),
-             size=0.4, alpha=0.25 , 
+             size = 0.4, alpha=0.25 ,  #size parameter in geom edge  is not passed over correctly into ggplotly, it seems to be carry over to borders(country) in plotly too
              arrow = arrow(length = unit(10, "pt"), type = "closed")) +
   geom_nodes(data=df_net,aes(x=lon, y=lat, xend=endlon,yend=endlat, 
                              size=centrality, colour=sqrt(degree), text=text)) +
     scale_colour_viridis() +
   ggtitle("Relationship of Countries with various nodes") + 
-  ## geom_map would provide a nicer map, but proved to be problematic when chaining through ggplotly
+  ## geom_map would provide a nicer map, but proved to be problematic for ggplotly
   # geom_map(data=world, map=world, aes(x=long, y=lat, map_id=region),
   #          color="white", fill="#7f7f7f", size=0.05, alpha=1/4) +
 
@@ -380,80 +478,172 @@ plot <- ggplot(arrow.gap = 0.025) +
   theme_blank()+
   # https://github.com/ropensci/plotly/issues/842
   theme(legend.position='none') #translate to hide legend in plotly
-
-
-#raw plot
-plot
-
-#plotlly plot
-plot %>% ggplotly(tooltip="text") %>% toWebGL()
-#issue, arrow head doesn't get translated into plotly via ggplotly
-
-#Doesn't appear to be very stable
-
-
-```
-
-However, given the number of nodes and edges laying the map, going this approach demand sacrifice on the visibility, perhaps a more stricter thresholding will help?
-
-toWebGL() Doesn't appear to be very stable at times, may require the user to click on the plot once to start rendering
-
-
-
-
-### Network Plot
-
-These exist a host of layouts that exists to help illustrate the connectivity between nodes and edges, not to mention, the coordinates (x, y) of the nodes in the network plot could carry significant meaning as well.
-
-```{r}
-  
-df_net <- ggnetwork(net, layout = "fruchtermanreingold", weights="weight", niter=50000, arrow.gap=0)
- # layout = "kamadakawai"
-# arrow.gap = 0.025 # 
-# arrow gap default value for directed graph, but the arrows aren't carried over in plottly
-# niter -  This argument controls the number of iterations to be employed. Larger values take longer, but will provide a more refined layout. (Defaults to 500.)
-
-plot <- ggplot() +
-  geom_edges(data = df_net,aes(x = x, y = y, xend = xend, yend = yend),
-             size=0.4, alpha=0.25) +
-  geom_nodes(data = df_net,aes(x = x, y = y, xend = xend, yend = yend, 
-                               size = degree, color = degree, text=text)) +
-  ggtitle("Relationship of Countries with various nodes") + 
-  scale_colour_viridis() +
-  ## geom_map would provide a nicer map, but proved to be problematic when chaining through ggplotly
-  # geom_map(data=world, map=world, aes(x=long, y=lat, map_id=region),
-  #          color="white", fill="#7f7f7f", size=0.05, alpha=1/4) +
-  # scale_color_manual(labels=c("EWR", "JFK", "LGA", "Others"),
-  #                      values=c(colors, "#1a1a1a"), name="Airports") +
-  guides(size=FALSE, color=FALSE) +
-  theme_blank()+
-  # https://github.com/ropensci/plotly/issues/842
-  theme(legend.position='none') #translate to hide legend in plotly
-
-
-
-#raw plot
-plot
 
 #plotlly plot
 plot %>% ggplotly(tooltip="text") 
+#%>% toWebGL()
+#issue, arrow head doesn't get translated into plotly via ggplotly
+# no self loop is shown
+
+```
+
+Currently, toWebGL() is disable, as doesn't appear to be very stable - the world map/countries borders are sometimes not shown when it is enable.
+
+In the exposed network trails, it seems British Virgin Island is among the most connected country nodes, followed by Unknown (identities that did not list a country) and Bahama. Other major country nodes with higher degree(colour) and centrality(size) is Hong Kong, Singapore, UAE, Cyprus, Switzerland, not identify and UK.
+
+The highest centrality and degreeness of the countrys can also be directly identify and ploted.
+```{r warning = FALSE, message=FALSE}
+by_countries.raw<-setDT(df_net)[is.na(endlat),
+              .(countries, betweenness,centrality,degree)][order(-centrality)]%>%
+  .[,name:=as.character(countries)] %>%
+  head(30)
+
+x<- c("Country", "Betweenness", "Centrality","Degree")
+y<- c("{point.countries}", (sprintf("{point.%s:.2f}", c("betweenness", "centrality","degree"))))
+tltip<- tooltip_table(x,y)
+
+hchart(by_countries.raw, "scatter", hcaes(centrality, betweenness, size= degree, color=degree), dataLabels=list(enabled=T, format = '{point.countries}'))%>%
+  hc_title(text="Network Attributes of Country Nodes in panama-paradise papers")%>%
+  hc_tooltip(useHTML=TRUE, headerFormat="",pointFormat=tltip)
+  #   hc_yAxis(type="logarithmic")%>%
+  # hc_xAxis(type="logarithmic")
+  
+
+```
+
+
+<br/>
+<hr/>
+<br/>
+
+
+```{r}
+#   
+# df_net <- ggnetwork(net, layout = "fruchtermanreingold", weights="weight", niter=50000, arrow.gap=0)
+#  # layout = "kamadakawai"
+# # arrow.gap = 0.025 # 
+# # arrow gap default value for directed graph, but the arrows aren't carried over in plottly
+# # niter -  This argument controls the number of iterations to be employed. Larger values take longer, but will provide a more refined layout. (Defaults to 500.)
+# 
+# plot <- ggplot() +
+#   geom_edges(data = df_net,aes(x = x, y = y, xend = xend, yend = yend),
+#              size=0.4, alpha=0.25) +
+#   geom_nodes(data = df_net,aes(x = x, y = y, xend = xend, yend = yend, 
+#                                size = degree, color = degree, text=text)) +
+#   ggtitle("Relationship of Countries with various nodes") + 
+#   scale_colour_viridis() +
+#   ## geom_map would provide a nicer map, but proved to be problematic when chaining through ggplotly
+#   # geom_map(data=world, map=world, aes(x=long, y=lat, map_id=region),
+#   #          color="white", fill="#7f7f7f", size=0.05, alpha=1/4) +
+#   # scale_color_manual(labels=c("EWR", "JFK", "LGA", "Others"),
+#   #                      values=c(colors, "#1a1a1a"), name="Airports") +
+#   guides(size=FALSE, color=FALSE) +
+#   theme_blank()+
+#   # https://github.com/ropensci/plotly/issues/842
+#   theme(legend.position='none') #translate to hide legend in plotly
+# 
+# 
+# 
+# #raw plot
+# plot
+# 
+# #plotlly plot
+# plot %>% ggplotly(tooltip="text") 
 ```
 
 
 
-## Visnetwork
-http://kateto.net/networks-r-igraph
-* Well documented on [their Website](http://datastorm-open.github.io/visNetwork/)
-* Physics based 
-* Appears to be running on Javascript/html
-* Aethestically pleasing, among the cleanest network plot
 
-Issues
-* No direct method to overlay the nodes onto of a map,
-While it is possible to force them into respective coordintes(x, y) and disable Physics, to properly display them would require some work on scaling.
+
+
+### Highcharter - igraph
+
+Pros
+
+* Easy to work with
+
+Issue
+
+* Documentation is sparse -  I based mine on its R equivalent (website)[http://jkunst.com/highcharter/hchart.html], but I could not find any igraph related stuff on highcharter API (where it is origin and generally better documented, although in Java).
+
+* No directional arrow - Couldn't get it to display directional arrow in the network plots
+
+* No obvious method to fix the nodes at specific location.
+
+Plotting variable
+
+* Nodes colour - membership, which membership of country nodes in the network densely connected subgraphs, also called communities in a graph via random walks.
+
+* Nodes Size - Degree, how many connection one nodes has (lighter colour means that a particular  country nodes has more connections) [counting both in and out connections]
 
 
 ```{r}
+
+#igraph, creating the graph entities while filtering for weight
+Nodes_betweenness<- igraph::betweenness(net)
+membership<- membership(cluster_walktrap(net))
+
+#### Nodes Enchancement 
+V(net)$degree<-igraph::degree(net, mode = "all")
+V(net)$betweenness<-log(10+Nodes_betweenness)/log(1+max(Nodes_betweenness))
+V(net)$centrality<-eigen_centrality(net, weights=E(net)$Weight)$vector
+V(net)$text<-V(net)$countries
+V(net)$color<-colorize(membership)
+V(net)$size<-V(net)$degree
+
+#### Edge Enhancement
+#Need to manually alocate the Edge lat,lon to appropriate coordinates
+end_loc<-data.table(ename=as.integer(get.edgelist(net)[,2])) %>%
+  .[CountryIDNodes, on= c(ename="id"), nomatch= 0]
+
+### Setting coordinates of edges arrow
+E(net)$endlat<-end_loc$lat
+E(net)$endlon<-end_loc$lon
+
+### Scaling of weight
+# applying a logarithm scale to recale the weight from 0 to 1
+E(net)$weight<-log(1+E(net)$weight)/log(1+max(E(net)$weight))
+E(net)$width<-E(net)$weight*3
+
+#Doesn't appearst to be working
+# E(net)$arrow.size<- 12
+
+hchart(net, layout=layout_with_kk)%>%
+  hc_title(text="Network Attributes of Country Nodes in panama-paradise papers")
+
+### couldn't get the nodes to be fix on respective coordinate of the countries.
+# hchart(net, layout=as.matrix(geocodes_df))
+# Error in UseMethod("layout") : no applicable method for 'layout' applied to an object of class "igraph"
+
+```
+
+
+
+
+<br/>
+<hr/>
+<br/>
+
+
+### Visnetwork
+
+Pros
+
+* Well documented on [their Website](http://datastorm-open.github.io/visNetwork/)
+
+* Both Igraph layout, fix X and Physics based graph can be generated
+
+* Appears to be running on Javascript/html
+
+Issues
+
+* No direct method to overlay the nodes onto a map
+
+* While it is possible to force them into respective coordintes(x, y) and disable Physics(so they remain statis at the location), to properly display them would require some work on scaling. There is also no direct method to overlay the nodes on a world map (from what i can discern from google and documentation)
+
+
+```{r}
+#thresholding
 vis_edge<-Country_id_Edges[weight>=285,]
 vis_node<-CountryIDNodes[id %in% sort(unique(
                                              c(
@@ -494,8 +684,7 @@ vis_edge$width <-log(1+vis_edge$weight)/log(1+max(vis_edge$weight)) # default to
 vis_edge$arrows <- "middle" # arrows: 'from', 'to', or 'middle'
 
 set.seed(1)
-visNetwork(edges=vis_edge, nodes=vis_node, main="Aggregated Network plot of Countries",
-           height="400px", width="100%")  %>%
+visNetwork(edges=vis_edge, nodes=vis_node, main="Aggregated Network plot of Countries Nodes Network")%>%
   visOptions(highlightNearest = TRUE) 
 
 ## While the Initial zoom level can be setup, this require either to disable visPhysics's Stabilization or the use of visIgraphLayout, which would sacrifice the the cleanliness of the plot
@@ -515,9 +704,16 @@ You will have to scroll your mouse3 to zoom towards the network plots, unfortuna
 Country coordinates(lat, lon) of respective nodes are used as starting location of the network plot. Hence, the final location of nodes ( countries) should bear some resemblance to their respective location on the world map
 
 
+<br/>
+<hr/>
+<br/>
+
 ### Network d3
-[githubpage/document](https://github.com/christophergandrud/d3Network)
+
+*[githubpage/document](https://github.com/christophergandrud/d3Network)
+
 This network plot methods works pretty well though, asside from requiring edges to be index at 0. This is further complicated by the fact that thresholded nodes_id aren't even continuous.
+
 ```{r}
 vis_edge<-vis_edge[order(from, to)]
 el <- data.frame(from=vis_edge$from, 
@@ -535,47 +731,56 @@ el <- data.frame(from=vis_edge$from,
 ## Reindexing the nodes as d3 network/javascript are zero index
 #Create a zero index column IDN
 vis_node$IDN=as.numeric(factor(vis_node$id))-1
+
 # Merged/Mapped the IDN column into "to" and "from" column in edges.
 vis_edge_d3<-vis_node[,.(id,IDN)][vis_edge, on = c(id= "from")] %>%
   vis_node[,.(id,IDN)][.,  on = c(id= "to")]
+
 # Dropping unnecessary columns and renaming 
 vis_edge_d3$id<-NULL
 vis_edge_d3$i.id<-NULL
 colnames(vis_edge_d3)[1]<- "from"
 colnames(vis_edge_d3)[2]<- "to"
 
-# forceNetwork(Links = vis_edge_d3, Nodes = vis_node, 
+# forceNetwork(Links = vis_edge_d3, Nodes = vis_node,
 #              # plotting parameters
 #              Source="from", Target="to", Value = "width",
 #              Group = "color.background", NodeID="countries",
 #              # Nodesize=6,
-#              opacity = 0.8, 
-#              opacityNoHover = 0.4,  
-#              radiusCalculation = JS(" d.nodesize^2+10"), 
-#              linkColour = "#afafaf", 
-#              linkWidth = JS("function(d) { return Math.sqrt(d.value); }"), 
-#              
+#              opacity = 0.8,
+#              opacityNoHover = 0.4,
+#              radiusCalculation = JS(" d.nodesize^2+10"),
+#              linkColour = "#afafaf",
+#              linkWidth = JS("function(d) { return Math.sqrt(d.value); }"),
+# 
 #              # layout
 #              charge = -250,  # if highly negative, more space betqeen nodes
-#              
+# 
 #              # general parameters
 #              arrows=TRUE,
 #              fontSize=17,
 #              zoom = TRUE,
 #              legend=F,
-#              width = NULL, 
+#              width = NULL,
 #              height = NULL
 # )
 
 
 ```
 
+Loading the rendered plot of d3 network on knited rmd/html on chrome seems to be causing absurd amount of error and thus crashing it. It, however, appears to be running fine on Edge explorer. 
 
+<br/>
+<hr/>
+<br/>
 
-# Graphing the Network by identities
+## Graphing individual clusters from the full Network
 
+###Nodes
 ```{r}
 ## Nodes
+#merging them all on node_id doesn't seems to result in a very useful plot, the codes for merging that I tried running can be found in the appendices section. 
+
 # Combining various identities and label them
 Nodes<-rbind(
   Entities[,.(node_id,countries, country_codes, nameID=name, sourceID, Identity="Entities")], 
@@ -584,11 +789,15 @@ Nodes<-rbind(
   Addresses[,.(node_id, countries, country_codes, sourceID, Identity="Addresses")]
   , fill=TRUE)
 #I initially thought that address wouldn't be needed in to full network diagram, but later found out that if I exlude the addresses datasets, I couldn't form a network graph some of the nodes require connection to the node_id that can only be found in address datasets.
+```
 
+Removing duplicate listing of some nodes which share id but exist is different identitites.
+
+```{r}
 # These combined dataframe of nodes is not directly network graphable. As the node_id is not unique, ie. Below we explore these non unique node_id records.
 Non_unique_ID <-Nodes[, fD := .N > 1, by = node_id][fD==TRUE] %>%
   .[order(node_id)]
-Non_unique_ID 
+Non_unique_ID %>%head(30)
 
 # So, apparently some ID have entires for both Intermediaries and Officers, which probably a simply row_bind to combine them, as in these case m the node_id would not be unique.
 
@@ -602,10 +811,7 @@ Nodes$fD <- NULL
 
 ```
 
-```{r}
-Nodes[,.N, by= sourceID]
-```
-
+Simpilfying the Edges to Make it possible to visuallise it with line type
 
 ```{r}
 
@@ -636,13 +842,12 @@ Edges[rel_type %in% popular_rel_type$rel_type, Edge_Type:=1]%>%
 
 ```
 
-
+### Edges
 ```{r}
 ##Edges
 Edges_simplified<-Edges[,.(node_1, node_2, rel_type, Edge_Type, sourceID)]
 colnames(Edges_simplified) <-c("from", "to", "rel_type", "edge_type", "sourceID")
 ```
-
 
 ```{r}
 ## Setting network graph into directed to examine the all connections and out connections of nodes
@@ -650,34 +855,27 @@ net <- graph.data.frame(Edges_simplified, vertices=Nodes, directed = T)
 
 ```
 
-
 ```{r}
 ### Degree, the connections of edges
-nodes_degree_all <- igraph::degree(net, mode = "all")
-nodes_degree_out <- igraph::degree(net, mode = "out")
+# nodes_degree_all <- igraph::degree(net, mode = "all")
+# nodes_degree_out <- igraph::degree(net, mode = "out")
 # The degree of a vertex is its most basic structural property, the number of its adjacent edges.
 
 ### Betweenness, number of shortest path going through vertext, 
 ### It doesn't seems sensible to examine the network plot with this
 # nodes_betweenness<- igraph::betweenness(net)
 ## The vertex and edge betweenness are (roughly) defined by the number of geodesics (shortest paths) going through a vertex or an edge.
-```
 
-
-
-```{r}
-## Setting network graph into non directed to greatly simplify the cluster calculation
-net <- graph.data.frame(Edges_simplified, vertices=Nodes, directed = F)
-
-nodes_centrality <- eigen_centrality(net)
+# nodes_centrality <- eigen_centrality(net)
 ## Eigenvector centrality scores correspond to the values of the first eigenvector of the graph adjacency matrix; these scores may, in turn, be interpreted as arising from a reciprocal process in which the centrality of each actor is proportional to the sum of the centralities of those actors to whom he or she is connected.
 
 ## allocating the calculated nodes attributes into a dataframe
-nodes_attributes<-data.table(names(nodes_degree_all), 
-                        unlist(nodes_degree_all), 
-                        unlist(nodes_degree_out), 
-                        unlist(nodes_centrality$vector))
-colnames(nodes_attributes)<- c("nodes_id","nodes_degree_all","nodes_degree_out","centrality")
+nodes_attributes<-data.table(
+  nodes_id=names(igraph::degree(net, mode = "all")), 
+  nodes_degree_all=(igraph::degree(net, mode = "all")), 
+  nodes_degree_out=(igraph::degree(net, mode = "out")), 
+  nodes_betweenness=(igraph::betweenness(net)),
+  centrality=(eigen_centrality(net)$vector))
 
 ```
 
@@ -692,7 +890,7 @@ decomposed_graph_list<-decompose.graph(net)
 vcount_dt<-data.table(unlist(lapply(decomposed_graph_list,vcount)),keep.rownames=T)
 vcount_dt$membership_id<-rownames(vcount_dt)
 setnames(vcount_dt, "V1", "vcount")
-vcount_dt[order(-vcount)]
+vcount_dt[order(-vcount)]%>%head(10)
 
 
 ## Choosing clusters of different size to plot
@@ -700,13 +898,15 @@ vcount_dt[order(-vcount)]
 #medium id=185, N=166
 #small  id=5050, N=16
 
+# plot(decomposed_graph_list[[1]])
+
 ```
 
+A total of 10,633 individual none connected clusters, although the majoirty of the nodes have already been linked in community1, which has the majortiy of the nodes, numbered at 942172 members/nodes.
 
 ```{r}
-
-subnodes_large<-as_data_frame(decomposed_graph_list[[991]], what = c("vertices"))
-subedges_large<-as_data_frame(decomposed_graph_list[[991]], what = c("edges"))
+subnodes_large<-data.table(as_data_frame(decomposed_graph_list[[991]], what = c("vertices")))
+subedges_large<-data.table(as_data_frame(decomposed_graph_list[[991]], what = c("edges")))
 
 subnodes_medium<-as_data_frame(decomposed_graph_list[[185]], what = c("vertices"))
 subedges_medium<-as_data_frame(decomposed_graph_list[[185]], what = c("edges"))
@@ -716,7 +916,58 @@ subedges_small<-as_data_frame(decomposed_graph_list[[5050]], what = c("edges"))
 
 ```
 
-## Subnodes_Large
+### Network Attributes
+
+#### Centrality
+
+```{r}
+# Exploring centrality
+High_Centrality_Nodes<-nodes_attributes[centrality>=0.002681][order(-centrality)]%>%head(30)
+# Changing the class of nodes_id to interget for Merging
+High_Centrality_Nodes$node_id<- as.integer(High_Centrality_Nodes$nodes_id)
+# Merging with original nodes to acquire nodes attributes
+H_Centrality_dt<-Nodes[High_Centrality_Nodes, on=c(node_id="node_id")]
+
+
+##Highcharter
+#tooltip table
+x<- c("NodeName", "Degree all","Degree out","Betweenness", "Centrality")
+y<- c("{point.nameID}", (sprintf("{point.%s:.2f}",
+                                 c("nodes_degree_all", "nodes_degree_out",
+                                   "nodes_betweenness", "centrality"))))
+tltip<- tooltip_table(x,y)
+
+#plot
+hchart(H_Centrality_dt, "scatter", hcaes(centrality, nodes_betweenness, 
+                                         size= nodes_degree_all, color=nodes_degree_out), dataLabels=list(enabled=T, format = '{point.nameID}'))%>%
+  hc_title(text="Network Attributes of Nodes in panama-paradise papers")%>%
+  hc_tooltip(useHTML=TRUE, headerFormat="",pointFormat=tltip)%>%
+  hc_yAxis(type="logarithmic")%>%
+  hc_xAxis(type="logarithmic")
+
+```
+
+<br/>
+
+#### Betweenness
+
+```{r}
+#Exploring degrees
+# nodes with most in connections
+Most_in_connected<-nodes_attributes[order(nodes_degree_out, -nodes_degree_all)]%>%head(30)
+Nodes[node_id %in% Most_in_connected$nodes_id]
+
+
+# nodes with most outgoing connections
+Most_out_connected<-nodes_attributes[order(-nodes_degree_out, nodes_degree_all)]%>%head(30)
+Nodes[node_id %in% Most_out_connected$nodes_id]
+```
+
+<br/>
+<hr/>
+<br/>
+
+### Subnodes_Large{-}
 
 ```{r}
 # using igraph to calculate some betweenness and degree
@@ -748,14 +999,20 @@ subedges_large$dashes <- (subedges_large$edge_type==3)
 subedges_large$label<- subedges_large$rel_type
 
 set.seed(1)
-visNetwork(edges=subedges_large, nodes=subnodes_large, main="Extracted Large Cluster",
-           height="400px", width="100%")  %>% 
+visNetwork(edges=subedges_large, nodes=subnodes_large, main="Extracted Large Cluster")  %>% 
+           # height="400px", width="100%")  %>% 
   visIgraphLayout() %>%
-  visOptions(highlightNearest = list(enabled=T, degree=1, hover=F))
+  visOptions(highlightNearest = list(enabled=T, degree=1, hover=F)) %>% 
+  visNodes(scaling = list(min = 10, max = 50))
 
 ```
 
-## Subnodes_medium
+
+<br/>
+<hr/>
+<br/>
+
+### Subnodes_medium{-}
 
 ```{r}
 # using igraph to calculate some betweenness and degree
@@ -768,7 +1025,7 @@ Nodes_Degree<-igraph::degree(subnet_medium, mode = "all")
 # ?visNodes
 subnodes_medium$id<- subnodes_medium$name
 subnodes_medium$shadow <- TRUE # Nodes will drop shadow
-subnodes_medium$size <- log(10+Nodes_betweenness)/log(1+max(Nodes_betweenness))* 25 #default to 25
+subnodes_medium$size <- log(10+Nodes_betweenness)/log(1+max(Nodes_betweenness))* 10 #default to 25
 subnodes_medium$borderWidth <- 2 # Node border width
 subnodes_medium$color.background <- colorize(Nodes_Degree)
 subnodes_medium$color.border <- "black"
@@ -796,8 +1053,11 @@ visNetwork(edges=subedges_medium, nodes=subnodes_medium, main="Extracted Medium 
 
 
 
+<br/>
+<hr/>
+<br/>
 
-## Subnodes_Small
+### Subnodes_Small{-}
 
 ```{r}
 # using igraph to calculate some betweenness and degree
@@ -812,7 +1072,7 @@ subnodes_small$id<- subnodes_small$name
 subnodes_small$shadow <- TRUE # Nodes will drop shadow
 subnodes_small$label <-subnodes_small$countries
 subnodes_small$title <- subnodes_small$nameID
-subnodes_small$size <- log(10+Nodes_betweenness)/log(1+max(Nodes_betweenness))* 25 #default to 25
+subnodes_small$size <- log(10+Nodes_betweenness)/log(1+max(Nodes_betweenness))* 10 #default to 25
 subnodes_small$borderWidth <- 2 # Node border width
 subnodes_small$color.background <- colorize(Nodes_Degree)
 subnodes_small$color.border <- "black"
@@ -839,29 +1099,15 @@ visNetwork(edges=subedges_small, nodes=subnodes_small, main="Extracted Small Clu
 
 
 
-```{r}
-# Exploring centrality
-High_Centrality_Nodes<-nodes_attributes[centrality>=0.002681][order(-centrality)]%>%head(30)
-High_Centrality_Nodes
-Nodes[node_id %in% High_Centrality_Nodes$nodes_id]
-```
-
-
-```{r}
-#Exploring degrees
-# nodes with most in connections
-nodes_attributes[order(nodes_degree_out, -nodes_degree_all)]
-
-# nodes with most outgoing connections
-nodes_attributes[order(-nodes_degree_out, nodes_degree_all)]
-```
-
+<br/>
+<hr/>
+<br/>
 
 # Apendicies
 
-Dump/Achieved chunks than I tried and failed to achieve adequate result.
+Dump/Achieved code chunks than I tried and failed to achieve adequate result.
 
-## Attempt to merge all the datasets together
+## Merging all the datasets together
 
 This is achieved version my previous attempt to merge(only with node_id) all the datasets while preserving the individual columns by renaming them before merging.
 
@@ -887,21 +1133,124 @@ rbind method that i used in my main routine works better in this case.
 ```
 
 
-## Other methods of plotting network that i tried
-### Network - igraph/ggnet2/plotly
-
-* Slighltly Cleaner than igraph/ggnetwork/ggplot, but 
-
-Issues
-* I couldn't identify a path to pass the tooltips text into plotlys for interactively
-* toWebGL() proved to be problematic.
-
+## Other methods of plotting network that works
 
 ```{r}
 net <- graph.data.frame(Country_id_Edges, CountryIDNodes, directed = TRUE)
 ```
 
+### Plotly - igraph offical method
+
+Official method for R, what i done here roughly follows (plotly)[https://plot.ly/r/network-graphs/]. I modifying some additional scatter attributes as well as slightly improve the codes(in the way of R).
+
 ```{r}
+# L<-layout.circle(net) #deprecated
+L<-layout_(net, nicely())
+
+CountryN_nodes<-as_data_frame(net, what = c("vertices"))
+CountryN_edges<-as_data_frame(net, what = c("edges"))
+
+#Combining the layout with extra attributes
+L<-data.frame(cbind(L,CountryN_nodes))
+
+#Verices and Eges
+vs<-V(net)
+es<-as.data.frame(get.edgelist(net))
+Nv<-length(vs)
+Ne<-length(es[1]$V1)
+
+#Create Nodes
+network<- plot_ly(data=L, type='scatter',x=~X1, y=~X2, 
+                  color=~centrality, size=~degree, mode="markers", text=~text, marker=list(colorscale='Viridis'), hoverinfo="text")
+
+#Creates Edges
+edge_shapes<- list()
+
+for(i in 1:Ne){
+  v0<-es[i,]$V1
+  v1<-es[i,]$V2
+  
+  edge_shape=list(
+    type="line",
+    line=list(color="#030303", width=0.3),
+    x0=L$X1[[v0]],
+    y0=L$X2[[v0]],
+    x1=L$X1[[v1]],
+    y1=L$X2[[v1]]
+  )
+  edge_shapes[[i]]<-edge_shape
+}
+
+axis<-list(title="", showgrid=FALSE, showticklabels=FALSE, zeroline=FALSE)
+
+p<-layout(network,
+          title="Plotly Network",
+          shapes=edge_shapes,
+          xaxis=axis,
+          yaxis=axis
+          )
+p
+```
+
+
+
+```{r}
+CountryN_edges$id <- seq_len(nrow(CountryN_edges))
+# 
+# map projection
+geo <- list(
+  # projection = list(type = 'azimuthal equal area'),
+  showland = TRUE,
+  landcolor = toRGB("gray95"),
+  countrycolor = toRGB("gray80")
+)
+
+plot_geo()%>%
+  add_markers(data= L, 
+    x = ~lon, y = ~lat, size = ~degree, 
+    color = ~centrality, hoverinfo = "text", #, colorscale='Viridis'
+    text =~ ~paste(L$countries, "<br />",
+                   "centrality: ", signif(L$centrality,2), "<br />",
+                   "betweenness: ", signif(L$betweenness,2), , "<br />",
+                   "degree: ", L$degree,, "<br />"))%>%
+  add_segments(
+    data = group_by(CountryN_edges,id),
+    x = ~startlon, xend = ~endlon,
+    y = ~startlat, yend = ~endlat,# width=~weight,
+    alpha = 0.3, size = I(1), hoverinfo = "none"
+  )%>%
+  layout(
+    title = 'Country Nodes Network on Map',
+    geo = geo, showlegend = FALSE
+  )
+  ## Passing layout here doesn't seem to work
+      # layout(network,
+      #     title="Plotly Network",
+      #     shapes=edge_shapes,
+      #     xaxis=axis,
+  
+      #     yaxis=axis
+      #     )
+
+
+
+
+```
+
+### Plotly - igraph/ggnet2
+
+* Slighltly Cleaner than igraph/ggnetwork/ggplot, but 
+
+Issues
+
+* I couldn't identify a path to pass the tooltips text into plotlys for interactively
+
+* toWebGL() proved to be problematic.
+
+
+
+
+```{r warning = FALSE, message=FALSE}
 ### Enchancement for the Nodes
 # Calculating degree/betweeness
 V(net)$degree <- igraph::degree(net, mode = "all")
@@ -941,8 +1290,6 @@ ggg
 ```
 
 
-
-
 ```{r}
 df_net <- ggnetwork(net, layout = "kamadakawai")
 # possible nice layout: kamadakawai, fruchtermanreingold
@@ -958,41 +1305,86 @@ plot %>% ggplotly(tooltip = "text") %>% toWebGL()
 ```
 
 
-## Active, Inactive Entities per country over time
+### Exploring the inner membership within clusters
+
+
+
+### Subnodes_ELarge{-}
+
 ```{r}
-# # TODO perhaps later
-# ## Nodes
-# Entities[,.(countries,jurisdiction_description,incorporation_date,inactivation_date,struck_off_date,dorm_date,service_provider,sourceID)]
-# 
-# 
-# data_list<- c("incorporation_date","inactivation_date","struck_off_date","dorm_date")
-# Entities[,(data_list):=lapply(.SD,parse_date_time,orders="%d-%m-%Y"),
-#          .SDcols=data_list]
+### Degree, the connections of edges
+subnodes_attributes<-data.table(
+  nodes_id = as.integer(names(igraph::degree(decomposed_graph_list[[1]], mode = "all"))),
+  nodes_degree_all = igraph::degree(decomposed_graph_list[[1]], mode = "all"),
+  nodes_degree_out = igraph::degree(decomposed_graph_list[[1]], mode = "out"),
+  nodes_betweenness= igraph::betweenness(decomposed_graph_list[[1]]),
+  nodes_centrality = eigen_centrality(decomposed_graph_list[[1]])$vector)
+
+# Exploring centrality
+H_Degree_dt<-subnodes_attributes[order(-nodes_degree_all)] %>%
+  Nodes[., on=c(node_id="nodes_id")]%>%
+  .[!(Identity=="Addresses"),]%>%
+  head(10)
+
+##Highcharter
+#tooltip table
+x<- c("NodeName", "Degree all","Degree out","Betweenness", "Centrality")
+y<- c("{point.nameID}", (sprintf("{point.%s:.2f}",
+                                 c("nodes_degree_all", "nodes_degree_out",
+                                   "nodes_betweenness", "nodes_centrality"))))
+tltip<- tooltip_table(x,y)
+
+#plot
+hchart(H_Degree_dt, "scatter", hcaes(nodes_degree_all, nodes_degree_out, 
+                                         size= nodes_centrality, color=nodes_betweenness), dataLabels=list(enabled=T, format = '{point.nameID}'))%>%
+  hc_title(text="Network Attributes of Nodes in panama-paradise papers")%>%
+  hc_tooltip(useHTML=TRUE, headerFormat="",pointFormat=tltip)
+```
+
+```{r}
+# Exploring centrality
+H_Centrality_dt<-subnodes_attributes[order(-nodes_centrality)] %>%
+  Nodes[., on=c(node_id="nodes_id")]%>%
+  .[!(Identity=="Addresses"),]%>%
+  head(15)
+
+#plot
+hchart(H_Centrality_dt, "scatter", hcaes(nodes_centrality, nodes_betweenness, 
+                                         size= nodes_degree_all, color=nodes_degree_out), dataLabels=list(enabled=T, format = '{point.nameID}'))%>%
+  hc_title(text="Network Attributes of Nodes in panama-paradise papers")%>%
+  hc_tooltip(useHTML=TRUE, headerFormat="",pointFormat=tltip)%>%
+  hc_xAxis(type = "logarithmic")%>%
+  hc_yAxis(type = "logarithmic")
 
 ```
 
-## other more advance clustering method from igraph
+#### Clustering with label propagation
 
+disabled
+```{r}
+# subnodes_Exlarge<-data.table(as_data_frame(decomposed_graph_list[[1]], what = c("vertices")))
+# subedges_Exlarge<-data.table(as_data_frame(decomposed_graph_list[[1]], what = c("edges")))
+```
 
 ```{r}
-# ###
-# ## Setting network graph into non directed to greatly simplify the cluster calculation
-# net <- graph.data.frame(Edges_simplified, vertices=Nodes, directed = F)
+# subnet_Elarge_net<-graph.data.frame(subedges_Exlarge, subnodes_Exlarge, directed = F)
 # 
-# ###  Hierarchical based clustering
-# nodes_cluster_lec<-cluster_leading_eigen(net)
-# ## find densely connected subgraphs in a graph by calculating the leading non-negative eigenvector of the modularity matrix of the graph.
+
+# # subnodes_cluster_lec<-cluster_leading_eigen(subnet_Elarge_net)
+# set.seed(1)
+# subnodes_cluster_prop<-cluster_label_prop(subnet_Elarge_net)
 # 
-# ### Not hierarchical based
-# ## cluster_label_prop
-#  nodes_cluster_label<-cluster_label_prop(net, weights = NA)
-# ## linear time algorithm (quoted V+E)for detecting community structure in networks. In works by labeling the vertices with unique labels and then updating the labels by majority voting in the neighborhood of the vertex.
-# ## Supplied 'weight'='NA' to ignore the 'weight' edge attribute.
+# # print(subnodes_cluster_prop)
+# # modularity(subnodes_cluster_prop)
+# # length(subnodes_cluster_prop)
+# # # membership(subnodes_cluster_prop)
+# # sizes(subnodes_cluster_prop)
 # 
-# ## cluster_walktrap
-#  V(net)$community<-igraph::cluster_walktrap(net)$membership
-# # cost of calculation is rather big, not to mention I dont think random walk will aid in this situation
-# ###
+# 
+# ## Extracting the nodes and its communities by membership in a cluster
+# ex<-induced.subgraph(subnet_Elarge_net, which(membership(subnodes_cluster_prop)==35))
+
 ```
+####
 
 
