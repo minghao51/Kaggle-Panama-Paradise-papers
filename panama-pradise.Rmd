@@ -29,6 +29,10 @@ Hence, right at the start, My aim was to explore both the panama-paradise papers
 
 # Library
 run require R packages.
+```{r}
+knitr::opts_chunk$set(results = 'hold') 
+```
+
 
 ```{r setup, warning = FALSE, message=FALSE}
 #general
