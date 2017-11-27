@@ -342,7 +342,7 @@ colnames(Country_id_Edges)<- c("from", "to", "weight")
 Pin pointing the respective country nodes on map with geocoding
 
 
-```{r}
+```{r, results = 'hide', echo = F}
 
 
 geocodes_df<-structure(list(lon = c(114.109497, 120.960515, 104.195397, 8.227512, 
@@ -780,7 +780,7 @@ YOu can click on individual nodes to highlight itself and its 1st adjacent neigb
 
 
 
-## Graphing the Network between nodes id
+## Graphing the Network between
 
 ###Nodes
 ```{r}
